@@ -16,9 +16,9 @@ import { logger } from '../utils/logger';
 import { parseSegmentIndex } from '../utils/mp4-tools';
 import M3U8Parser from './m3u8-parser';
 import { getProgramDateTimeAtEndOfLastEncodedFragment } from '../controller/level-helper';
-import { LevelParsed } from '../types/level';
+import { LevelParsed, LevelAttributes } from '../types/level';
 import {
-  Loader,
+  Loader, LoaderCallbacks,
   LoaderContext,
   LoaderResponse,
   LoaderStats, PlaylistContextType,
@@ -74,6 +74,7 @@ function getResponseUrl (response: LoaderResponse, context: PlaylistLoaderContex
  */
 class PlaylistLoader extends EventHandler {
   private readonly loaders: { [key: string]: Loader<LoaderContext> };
+  private readonly loaderCallbacks: LoaderCallbacks<LoaderContext>;
   /**
    * @constructs
    * @param {Hls} hls
@@ -86,6 +87,11 @@ class PlaylistLoader extends EventHandler {
       Event.SUBTITLE_TRACK_LOADING);
 
     this.loaders = Object.create(null);
+    this.loaderCallbacks = {
+      onSuccess: this.loadsuccess.bind(this),
+      onError: this.loaderror.bind(this),
+      onTimeout: this.loadtimeout.bind(this)
+    };
   }
 
   // TODO: export as enum once fragment-tracker and stream-controller typed
@@ -239,15 +245,8 @@ class PlaylistLoader extends EventHandler {
       highWaterMark: 0
     };
 
-    const loaderCallbacks = {
-      onSuccess: this.loadsuccess.bind(this),
-      onError: this.loaderror.bind(this),
-      onTimeout: this.loadtimeout.bind(this)
-    };
-
     logger.debug(`[playlist-loader]: Calling internal loader delegate for URL: ${context.url}`);
-
-    loader.load(context, loaderConfig, loaderCallbacks);
+    loader.load(context, loaderConfig, this.loaderCallbacks);
   }
 
   private loadsuccess (response: LoaderResponse, stats: LoaderStats, context: PlaylistLoaderContext, networkDetails: any = null): void {
@@ -328,7 +327,7 @@ class PlaylistLoader extends EventHandler {
           autoselect: false,
           forced: false,
           id: -1,
-          attrs: {},
+          attrs: {} as LevelAttributes,
           bitrate: 0,
           url: ''
         });
@@ -348,7 +347,8 @@ class PlaylistLoader extends EventHandler {
 
   private _handleTrackOrLevelPlaylist (response: LoaderResponse, stats: LoaderStats, context: PlaylistLoaderContext, networkDetails: any): void {
     const hls = this.hls;
-    const { id, level, type, loader } = context;
+    const { id, level, type } = context;
+    const loader = context.loader as Loader<LoaderContext>;
     const url = getResponseUrl(response, context);
 
     const levelUrlId = Number.isFinite(id as number) ? id : 0;
@@ -361,8 +361,11 @@ class PlaylistLoader extends EventHandler {
     const toDate = (value) => value ? new Date(value) : null;
 
     // Last-Modified or PDT after last encoded segment provides an approximation of the last manifest write
-    const mtime = toDate((loader as Loader<LoaderContext>).getResponseHeader('Last-Modified'));
+    const mtime = toDate(loader.getResponseHeader('Last-Modified'));
     const encoded = toDate(getProgramDateTimeAtEndOfLastEncodedFragment(levelDetails));
+
+    // TODO: Consider using 'Age' header to determine how long playlist has been cached on the edge
+    // const age = loader.getResponseHeader('Age');
 
     levelDetails.tload = stats.loading.end;
     levelDetails.lastModified = Math.max(+(mtime as Date), +(encoded as Date));
@@ -385,7 +388,7 @@ class PlaylistLoader extends EventHandler {
     // by creating a single-level structure for it.
     if (type === PlaylistContextType.MANIFEST) {
       const singleLevel: LevelParsed = {
-        attrs: {},
+        attrs: {} as LevelAttributes,
         bitrate: 0,
         details: levelDetails,
         name: '',
@@ -518,6 +521,8 @@ class PlaylistLoader extends EventHandler {
 
     const canHaveLevels = canHaveQualityLevels(context.type);
     if (canHaveLevels) {
+      // TODO: sync with LL-HLS server on first response
+      //  We may want to re-request the level here before triggering level loaded to get a better sync on start
       this.hls.trigger(Event.LEVEL_LOADED, {
         details: levelDetails,
         level: level || 0,

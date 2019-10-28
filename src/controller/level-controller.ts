@@ -19,6 +19,7 @@ import { isCodecSupportedInMp4 } from '../utils/codecs';
 import { addGroupId, computeReloadInterval } from './level-helper';
 import Fragment from '../loader/fragment';
 import { MediaPlaylist } from '../types/media-playlist';
+import LevelDetails from '../loader/level-details';
 
 let chromeOrFirefox: boolean;
 
@@ -31,6 +32,8 @@ export default class LevelController extends EventHandler {
   private levelRetryCount: number = 0;
   private manualLevelIndex: number = -1;
   private timer: number | null = null;
+  private currentSn: number = -1;
+  private currentPart: number = -1;
   public onParsedComplete!: Function;
 
   constructor (hls) {
@@ -414,8 +417,23 @@ export default class LevelController extends EventHandler {
     // if current playlist is a live playlist, arm a timer to reload it
     if (details.live) {
       const curDetails = curLevel.details;
-      details.updated = (!curDetails || details.endSN !== curDetails.endSN || details.url !== curDetails.url);
       details.availabilityDelay = curDetails && curDetails.availabilityDelay;
+
+      // check for LL-HLS server control
+      const { serverControl, partTarget } = details;
+      if (serverControl && partTarget) {
+        // details.updated = (!curDetails || details.endSN !== curDetails.endSN || details.endPart !== curDetails.endPart);
+        details.updated = (!curDetails || details.endSN !== curDetails.endSN);
+        if (serverControl.canBlock) {
+          // TODO: Improve reload interval for LL. It may be best to not rely on setTimeout timing.
+          const reloadInterval = Math.max(computeReloadInterval(details, data.stats) - 100, 100);
+          console.assert(details.updated, `low-latency got sn ${details.endSN} with part ${details.endPart} in ${details.url}`);
+          this.timer = self.setTimeout(() => this.loadLowLatencyLevel(details, level, data.id), reloadInterval);
+          return;
+        }
+      } else {
+        details.updated = (!curDetails || details.endSN !== curDetails.endSN || details.url !== curDetails.url);
+      }
       const reloadInterval = computeReloadInterval(details, data.stats);
       logger.log(`[level-controller]: live playlist ${details.updated ? 'REFRESHED' : 'MISSED'}, reload in ${Math.round(reloadInterval)} ms`);
       this.timer = self.setTimeout(() => this.loadLevel(), reloadInterval);
@@ -470,6 +488,57 @@ export default class LevelController extends EventHandler {
 
         this.hls.trigger(Event.LEVEL_LOADING, { url, level, id });
       }
+    }
+  }
+
+  private loadLowLatencyLevel (details: LevelDetails, level: number, id: number) {
+    if (this.canLoad) {
+      // TODO: Support level-switching with RENDITION-REPORT
+      const { endSN, endPart, partTarget, serverControl, url } = details;
+      if (!serverControl) {
+        throw new Error('Low-latency HLS requires SERVER-CONTROL details');
+      }
+      // TODO: append url param helper
+      //  and prevent these parameters from being added to the level details or level definition
+      let requestUrl = url.split('?')[0];
+
+      // Find the max number of parts
+      const advancePartLimit: number = Math.ceil(3 / Math.max(1, partTarget as number));
+      // TODO: Use part-hold-back or sync with current fragment part chosen in stream-controller
+      this.currentSn = (this.currentSn === -1) ? endSN : this.currentSn;
+      this.currentPart = (this.currentPart === -1) ? 0 : this.currentPart;
+      let msn = this.currentSn;
+      let part = this.currentPart;
+      if (details.updated) {
+        // part++;
+        // if (part > advancePartLimit) {
+        //   msn++;
+        //   part = 0;
+        // }
+        msn++;
+        this.currentSn = msn;
+        // this.currentPart = part;
+      }
+      // _HLS_msn=<N>: Indicates that the server must hold the request until a playlist contains a Media Segment with Media Sequence Number of N or later. The server must deliver the entire playlist, even if the requested Media Segment is not the last in the playlist, or in fact if it is no longer in the playlist.
+      // _HLS_part=<M>: Use in combination with _HLS_msn to indicate that the server must hold the request until a playlist contains Partial Segment M of Media Sequence Number of N or later. The first Partial Segment of a segment is _HLS_part=0, the second is _HLS_part=1, and so on. The _HLS_part parameter requires an _HLS_msn parameter.
+      requestUrl += `?_HLS_msn=${msn}`;
+      // requestUrl += &_HLS_part=${part}`;
+      // _HLS_push=<0/1>: Indicates whether the server must push the awaited Partial Segment along with the playlist response. 1 means push, 0 means don’t push. The absence of an _HLS_push parameter is equivalent to _HLS_push=0.
+      // TODO: Only push if msn (and part) is the next fragment/part required
+      // requestUrl += '&_HLS_push=1';
+      // details.push = { msn, part };
+      if (serverControl.canSkipUntil) {
+        // TODO: Implement delta playlist update
+        // _HLS_skip=YES: Requests a Playlist Delta Update, in which the earlier portion of the playlist is replaced with an EXT-X-SKIP tag. The server must ignore this parameter if the playlist contains an EXT-X-ENDLIST tag.
+        // requestUrl += '&_HLS_skip=YES';
+      }
+
+      logger.log(`[level-controller]: low-latency request ${msn}:${part} ${requestUrl}. Current level ${level} ${id}.`);
+
+      // console.log('Current audio track group ID:', this.hls.audioTracks[this.hls.audioTrack].groupId);
+      // console.log('New video quality level audio group id:', levelObject.attrs.AUDIO, level);
+
+      this.hls.trigger(Event.LEVEL_LOADING, { url: requestUrl, level, id });
     }
   }
 

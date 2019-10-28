@@ -1,6 +1,6 @@
 import * as URLToolkit from 'url-toolkit';
 
-import Fragment from './fragment';
+import Fragment, { FragmentPart } from './fragment';
 import LevelDetails from './level-details';
 import LevelKey from './level-key';
 
@@ -8,6 +8,7 @@ import AttrList from '../utils/attr-list';
 import { logger } from '../utils/logger';
 import { isCodecType, CodecType } from '../utils/codecs';
 import { MediaPlaylist, AudioGroup, MediaPlaylistType } from '../types/media-playlist';
+import { LevelParsed } from '../types/level';
 import { PlaylistLevelType } from '../types/loader';
 
 /**
@@ -22,12 +23,18 @@ const MASTER_PLAYLIST_MEDIA_REGEX = /#EXT-X-MEDIA:(.*)/g;
 const LEVEL_PLAYLIST_REGEX_FAST = new RegExp([
   /#EXTINF:\s*(\d*(?:\.\d+)?)(?:,(.*)\s+)?/.source, // duration (#EXTINF:<duration>,<title>), group 1 => duration, group 2 => title
   /|(?!#)([\S+ ?]+)/.source, // segment URI, group 3 => the URI (note newline is not eaten)
-  /|#EXT-X-BYTERANGE:*(.+)/.source, // next segment's byterange, group 4 => range spec (x@y)
+  /|#EXT-X-BYTERANGE: *(.+)/.source, // next segment's byterange, group 4 => range spec (x@y)
   /|#EXT-X-PROGRAM-DATE-TIME:(.+)/.source, // next segment's program date/time group 5 => the datetime spec
+  /|#EXT-X-PART:(.+)/.source, // identifies an LL-HLS partial segment
   /|#.*/.source // All other non-segment oriented tags will match with all groups empty
 ].join(''), 'g');
 
-const LEVEL_PLAYLIST_REGEX_SLOW = /(?:(?:#(EXTM3U))|(?:#EXT-X-(PLAYLIST-TYPE):(.+))|(?:#EXT-X-(MEDIA-SEQUENCE): *(\d+))|(?:#EXT-X-(TARGETDURATION): *(\d+))|(?:#EXT-X-(KEY):(.+))|(?:#EXT-X-(START):(.+))|(?:#EXT-X-(ENDLIST))|(?:#EXT-X-(DISCONTINUITY-SEQ)UENCE: *(\d+))|(?:#EXT-X-(DIS)CONTINUITY))|(?:#EXT-X-(PREFETCH-DIS)CONTINUITY)|(?:#EXT-X-(PREFETCH):(.+))|(?:#EXT-X-(VERSION):(\d+))|(?:#EXT-X-(MAP):(.+))|(?:(#)([^:]*):(.*))|(?:(#)(.*))(?:.*)\r?\n?/;
+const LEVEL_PLAYLIST_REGEX_SLOW = new RegExp([
+  /(?:(?:#(EXTM3U))|(?:#EXT-X-(PLAYLIST-TYPE):(.+))|(?:#EXT-X-(MEDIA-SEQUENCE): *(\d+))|(?:#EXT-X-(TARGETDURATION): *(\d+))|(?:#EXT-X-(KEY):(.+))|(?:#EXT-X-(START):(.+))|(?:#EXT-X-(ENDLIST))|(?:#EXT-X-(DISCONTINUITY-SEQ)UENCE: *(\d+))|(?:#EXT-X-(DIS)CONTINUITY))/.source,
+  /|(?:#EXT-X-(PREFETCH-DIS)CONTINUITY)|(?:#EXT-X-(PREFETCH):(.+))/.source,
+  /|(?:#EXT-X-(SERVER-CONTROL):(.+))|(?:#EXT-X-(PART-INF):(.+))|(?:#EXT-X-(SKIP):(.+))|(?:#EXT-X-(RENDITION-REPORT):(.+))/.source,
+  /|(?:#EXT-X-(VERSION):(\d+))|(?:#EXT-X-(MAP):(.+))|(?:(#)([^:]*):(.*))|(?:(#)(.*))(?:.*)\r?\n?/.source
+].join(''));
 
 const MP4_REGEX_SUFFIX = /\.(mp4|m4s|m4v|m4a)$/i;
 
@@ -58,12 +65,10 @@ export default class M3U8Parser {
     return URLToolkit.buildAbsoluteURL(baseUrl, url, { alwaysNormalize: true });
   }
 
-  static parseMasterPlaylist (string: string, baseurl: string) {
-    // TODO(typescript-level)
-    const levels: Array<any> = [];
+  static parseMasterPlaylist (string: string, baseurl: string): LevelParsed[] {
+    const levels: LevelParsed[] = [];
     MASTER_PLAYLIST_REGEX.lastIndex = 0;
 
-    // TODO(typescript-level)
     function setCodecs (codecs: Array<string>, level: any) {
       ['video', 'audio', 'text'].forEach((type: CodecType) => {
         const filtered = codecs.filter((codec) => isCodecType(codec, type));
@@ -83,18 +88,19 @@ export default class M3U8Parser {
 
     let result: RegExpExecArray | null;
     while ((result = MASTER_PLAYLIST_REGEX.exec(string)) != null) {
-      const level: any = {};
-
-      const attrs = level.attrs = new AttrList(result[1]);
-      level.url = M3U8Parser.resolve(result[2], baseurl);
+      const attrs = new AttrList(result[1]);
+      const level: LevelParsed = {
+        attrs,
+        bitrate: attrs.decimalInteger('AVERAGE-BANDWIDTH') || attrs.decimalInteger('BANDWIDTH'),
+        name: attrs.NAME,
+        url: M3U8Parser.resolve(result[2], baseurl)
+      };
 
       const resolution = attrs.decimalResolution('RESOLUTION');
       if (resolution) {
         level.width = resolution.width;
         level.height = resolution.height;
       }
-      level.bitrate = attrs.decimalInteger('AVERAGE-BANDWIDTH') || attrs.decimalInteger('BANDWIDTH');
-      level.name = attrs.NAME;
 
       setCodecs((attrs.CODECS || '').split(/[ ,]+/), level);
 
@@ -148,6 +154,7 @@ export default class M3U8Parser {
   static parseLevelPlaylist (string: string, baseurl: string, id: number, type: PlaylistLevelType, levelUrlId: number) {
     let currentSN = 0;
     let totalduration = 0;
+    let partsDuration = 0;
     const level = new LevelDetails(baseurl);
     let discontinuityCounter = 0;
     let prevFrag: Fragment | null = null;
@@ -184,11 +191,13 @@ export default class M3U8Parser {
           frag.baseurl = baseurl;
           // avoid sliced strings    https://github.com/video-dev/hls.js/issues/939
           frag.relurl = (' ' + result[3]).slice(1);
+          frag.partial = false;
           assignProgramDateTime(frag, prevFrag);
 
           level.fragments.push(frag);
           prevFrag = frag;
           totalduration += frag.duration;
+          partsDuration = 0;
 
           frag = new Fragment();
         }
@@ -206,6 +215,32 @@ export default class M3U8Parser {
         if (firstPdtIndex === null) {
           firstPdtIndex = level.fragments.length;
         }
+      } else if (result[6]) { // EXT-X-PART
+        const parts = frag.parts = frag.parts || [];
+        const attrs = new AttrList((' ' + result[6]).slice(1));
+        const part = new Fragment() as FragmentPart;
+        frag.partial = true;
+        part.attrs = attrs;
+        part.duration = attrs.decimalFloatingPoint('DURATION');
+        part.relurl = attrs.URI;
+        part.baseurl = baseurl;
+        if (attrs.BYTERANGE) {
+          part.setByteRange(attrs.BYTERANGE, parts[parts.length - 2]);
+        }
+        // additional properties
+        part.type = type;
+        part.start = totalduration + partsDuration;
+        partsDuration += part.duration;
+        if (levelkey) {
+          part.levelkey = levelkey;
+        }
+        part.sn = currentSN;
+        part.level = id;
+        part.cc = discontinuityCounter;
+        part.urlId = levelUrlId;
+        part.title = frag.title;
+        part.partIndex = level.endPart = parts.length;
+        frag.parts.push(part);
       } else {
         result = result[0].match(LEVEL_PLAYLIST_REGEX_SLOW);
         if (!result) {
@@ -256,7 +291,9 @@ export default class M3U8Parser {
           frag.title = null;
           frag.type = type;
           frag.start = totalduration;
-          frag.levelkey = levelkey;
+          if (levelkey) {
+            frag.levelkey = levelkey;
+          }
           frag.sn = currentSN++;
           frag.level = id;
           frag.cc = discontinuityCounter;
@@ -275,10 +312,30 @@ export default class M3U8Parser {
           discontinuityCounter++;
           frag.tagList.push(['PREFETCH-DIS']);
           break;
+        case 'SERVER-CONTROL': {
+          const attrs = new AttrList(value1);
+          level.serverControl = {
+            attrs,
+            canBlock: attrs.enumeratedString('CAN-BLOCK-RELOAD') === 'YES',
+            canSkipUntil: attrs.decimalInteger('CAN-SKIP-UNTIL') || 0,
+            holdBack: attrs.decimalFloatingPoint('HOLD-BACK') || 0,
+            partHoldBack: attrs.decimalInteger('PART-HOLD-BACK') || 0
+          };
+          break;
+        }
+        case 'PART-INF':
+          level.partTarget = new AttrList(value1).decimalFloatingPoint('PART-TARGET');
+          break;
+        case 'SKIP':
+          level.skipped = new AttrList(value1).decimalInteger('SKIPPED-SEGMENTS');
+          currentSN += level.skipped;
+          break;
+        case 'RENDITION-REPORT':
+          level.renditionReport = new AttrList(value1);
+          break;
         case 'KEY': {
           // https://tools.ietf.org/html/draft-pantos-http-live-streaming-08#section-3.4.4
-          const decryptparams = value1;
-          const keyAttrs = new AttrList(decryptparams);
+          const keyAttrs = new AttrList(value1);
           const decryptmethod = keyAttrs.enumeratedString('METHOD');
           const decrypturi = keyAttrs.URI;
           const decryptiv = keyAttrs.hexadecimalInteger('IV');
@@ -324,11 +381,15 @@ export default class M3U8Parser {
         }
       }
     }
-    frag = prevFrag;
-    // logger.log('found ' + level.fragments.length + ' fragments');
-    if (frag && !frag.relurl) {
-      level.fragments.pop();
-      totalduration -= frag.duration;
+    if (frag.partial) {
+      level.fragments.push(frag);
+    } else {
+      frag = prevFrag;
+      // logger.log('found ' + level.fragments.length + ' fragments');
+      if (frag && !frag.relurl) {
+        level.fragments.pop();
+        totalduration -= frag.duration;
+      }
     }
     level.totalduration = totalduration;
     level.averagetargetduration = totalduration / level.fragments.length;

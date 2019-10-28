@@ -4,6 +4,7 @@ import { logger } from '../utils/logger';
 import LevelKey from './level-key';
 import LoadStats from './load-stats';
 import { PlaylistLevelType } from '../types/loader';
+import AttrList from '../utils/attr-list';
 
 export enum ElementaryStreamTypes {
   AUDIO = 'audio',
@@ -15,6 +16,13 @@ interface ElementaryStreamInfo {
   endPTS: number
   startDTS: number
   endDTS: number
+}
+
+export interface FragmentPart extends Fragment {
+  attrs: AttrList,
+  duration: number,
+  partIndex: number;
+  uri: string
 }
 
 export default class Fragment {
@@ -84,7 +92,12 @@ export default class Fragment {
   public bitrateTest: boolean = false;
   // Total video frames dropped by the transmuxer
   public dropped: number = 0;
+  // #EXTINF content following duration
   public title: string | null = null;
+  // LL-HLS #EXT-X-PART fragments
+  public parts?: FragmentPart[];
+  // LL-HLS Are only parts available for this fragment?
+  public partial: boolean = false;
 
   // setByteRange converts a EXT-X-BYTERANGE attribute into a two element array
   setByteRange (value: string, previousFrag?: Fragment) {

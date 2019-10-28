@@ -491,7 +491,8 @@ export default class StreamController extends BaseStreamController {
     if (newDetails.live) {
       sliding = this.mergeLivePlaylists(curLevel.details, newDetails);
       if (sliding) {
-        this._liveSyncPosition = this.computeLivePosition(sliding, newDetails.targetduration, newDetails.totalduration);
+        const partHoldBack = newDetails.serverControl ? newDetails.serverControl.partHoldBack : 0;
+        this._liveSyncPosition = this.computeLivePosition(sliding, newDetails.targetduration, newDetails.totalduration, partHoldBack);
       }
     } else {
       newDetails.PTSKnown = false;

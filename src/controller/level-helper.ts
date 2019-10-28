@@ -212,7 +212,10 @@ export function adjustSliding (oldPlaylist: LevelDetails, newPlaylist: LevelDeta
 }
 
 export function computeReloadInterval (newDetails: LevelDetails, stats: LoaderStats): number {
-  const reloadInterval = 1000 * (newDetails.averagetargetduration ? newDetails.averagetargetduration : newDetails.targetduration);
+  // TODO: Determine when not to use Low-Latency mode so we can ignore partTarget
+  //  partTarget is only used in this method when SERVER-CONTROL does not signal CAN-BLOCK
+  const reloadInterval = 1000 * (newDetails.averagetargetduration || newDetails.targetduration);
+  // const reloadInterval = 1000 * (newDetails.partTarget || newDetails.averagetargetduration || newDetails.targetduration);
   const reloadIntervalAfterMiss = reloadInterval / 2;
   const timeSinceLastModified = newDetails.lastModified ? +new Date() - newDetails.lastModified : 0;
   const useLastModified = timeSinceLastModified > 0 && timeSinceLastModified < reloadInterval * 3;

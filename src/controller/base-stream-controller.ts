@@ -10,7 +10,7 @@ import { appendUint8Array } from '../utils/mp4-tools';
 import { alignStream } from '../utils/discontinuities';
 import { findFragmentByPDT, findFragmentByPTS, findFragWithCC } from './fragment-finders';
 import TransmuxerInterface from '../demux/transmuxer-interface';
-import Fragment from '../loader/fragment';
+import Fragment, { FragmentPart } from '../loader/fragment';
 import FragmentLoader, { FragLoadSuccessResult, FragmentLoadProgressCallback } from '../loader/fragment-loader';
 import LevelDetails from '../loader/level-details';
 import { BufferAppendingEventPayload } from '../types/events';
@@ -36,6 +36,8 @@ export const State = {
 export default class BaseStreamController extends TaskLoop {
   protected fragPrevious: Fragment | null = null;
   protected fragCurrent: Fragment | null = null;
+  // protected partPrevious: FragmentPart | null = null;
+  // protected partCurrent: FragmentPart | null = null;
   protected fragmentTracker!: FragmentTracker;
   protected transmuxer: TransmuxerInterface | null = null;
   protected _state: string = State.STOPPED;
@@ -175,7 +177,12 @@ export default class BaseStreamController extends TaskLoop {
         if (!data || this._fragLoadAborted(frag)) {
           return;
         }
-        this.log(`Loaded fragment ${frag.sn} of level ${frag.level}`);
+        if ('partIndex' in frag) {
+          const part: FragmentPart = frag as FragmentPart;
+          this.log(`Loaded low-latency part ${part.sn}:${part.partIndex} of level ${part.level}`);
+        } else {
+          this.log(`Loaded fragment ${frag.sn} of level ${frag.level}`);
+        }
         // For compatibility, emit the FRAG_LOADED with the same signature
         const compatibilityEventData: any = data;
         compatibilityEventData.frag = frag;
@@ -232,6 +239,11 @@ export default class BaseStreamController extends TaskLoop {
   protected _doFragLoad (frag: Fragment, progressCallback?: FragmentLoadProgressCallback) {
     this.state = State.FRAG_LOADING;
     this.hls.trigger(Event.FRAG_LOADING, { frag });
+
+    if ('partIndex' in frag) {
+      const part: FragmentPart = frag as FragmentPart;
+      this.log(`Loading low-latency part ${part.sn}:${part.partIndex}`);
+    }
 
     const errorHandler = (e) => {
       const errorData = e ? e.data : null;
@@ -310,6 +322,7 @@ export default class BaseStreamController extends TaskLoop {
 
   protected getNextFragment (pos: number, levelDetails: LevelDetails): Fragment | null {
     const { config, startFragRequested } = this;
+    // const fragments = levelDetails.partTarget ? levelDetails.partFragments : levelDetails.fragments;
     const fragments = levelDetails.fragments;
     const fragLen = fragments.length;
 
@@ -332,11 +345,29 @@ export default class BaseStreamController extends TaskLoop {
         this.warn(`Not enough fragments to start playback (have: ${fragLen}, need: ${initialLiveManifestSize})`);
         return null;
       }
+      // FIXME: this is a total hack
+      const { push } = levelDetails;
+      if (push && levelDetails.updated) {
+        for (let i = fragLen; i--;) {
+          if (fragments[i].sn === push.msn && (fragments[i] as FragmentPart).partIndex === push.part) {
+
+            return fragments[i];
+          }
+        }
+        console.assert(false, `low-latency: Did not find a part ${push.msn}:${push.part}. ${fragments.map(part => `${part.sn}:${(part as FragmentPart).partIndex}`)}`);
+        // This can happen when playlist blocking did not work correctly
+        return null;
+      } else if (levelDetails.serverControl && levelDetails.serverControl.canBlock) {
+        // Only load fragments pushed in order
+        return null;
+      }
       // Check to see if we're within the live range; if not, this method will seek to the live edge and return the new position
-      const syncPos = this.synchronizeToLiveEdge(start, end, loadPosition, levelDetails.targetduration, levelDetails.totalduration);
+      const partHoldBack = levelDetails.serverControl ? levelDetails.serverControl.partHoldBack : 0;
+      const syncPos = this.synchronizeToLiveEdge(start, end, loadPosition, levelDetails.targetduration, levelDetails.totalduration, partHoldBack);
       if (syncPos !== null) {
         loadPosition = syncPos;
       }
+
       // The real fragment start times for a live stream are only known after the PTS range for that level is known.
       // In order to discover the range, we load the best matching fragment for that level and demux it.
       // Do not load using live logic if the starting frag is requested - we want to use getFragmentAtPosition() so that
@@ -346,7 +377,7 @@ export default class BaseStreamController extends TaskLoop {
       }
     } else if (loadPosition < start) {
       // VoD playlist: if loadPosition before start of playlist, load first fragment
-      frag = fragments[0];
+      return fragments[0];
     }
 
     // If we haven't run into any special cases already, just load the fragment most closely matching the requested position
@@ -407,6 +438,7 @@ export default class BaseStreamController extends TaskLoop {
    */
   protected getFragmentAtPosition (bufferEnd: number, end: number, levelDetails: LevelDetails): Fragment | null {
     const { config, fragPrevious } = this;
+    // const fragments = levelDetails.partTarget ? levelDetails.partFragments : levelDetails.fragments;
     const fragments = levelDetails.fragments;
     const tolerance = config.maxFragLookUpTolerance;
 
@@ -459,14 +491,14 @@ export default class BaseStreamController extends TaskLoop {
     return frag;
   }
 
-  protected synchronizeToLiveEdge (start: number, end: number, bufferEnd: number, targetDuration: number, totalDuration: number): number | null {
+  protected synchronizeToLiveEdge (start: number, end: number, bufferEnd: number, targetDuration: number, totalDuration: number, partHoldBack: number): number | null {
     const { config, media } = this;
     const maxLatency = config.liveMaxLatencyDuration !== undefined
       ? config.liveMaxLatencyDuration
       : config.liveMaxLatencyDurationCount * targetDuration;
 
     if (bufferEnd < Math.max(start - config.maxFragLookUpTolerance, end - maxLatency)) {
-      const liveSyncPosition = this._liveSyncPosition = this.computeLivePosition(start, targetDuration, totalDuration);
+      const liveSyncPosition = this._liveSyncPosition = this.computeLivePosition(start, targetDuration, totalDuration, partHoldBack);
       this.log(`Buffer end: ${bufferEnd.toFixed(3)} is located too far from the end of live sliding playlist, reset currentTime to : ${liveSyncPosition.toFixed(3)}`);
       this.nextLoadPosition = liveSyncPosition;
       if (media && media.readyState && media.duration > liveSyncPosition) {
@@ -484,6 +516,7 @@ export default class BaseStreamController extends TaskLoop {
       lastLevel = levels![levelLastLoaded];
     }
 
+    // TODO: Handle LL-HLS delta playlists
     let sliding = 0;
     if (oldDetails && newDetails.fragments.length > 0) {
       // we already have details for that level, merge them
@@ -519,7 +552,8 @@ export default class BaseStreamController extends TaskLoop {
       } else {
         // if live playlist, set start position to be fragment N-this.config.liveSyncDurationCount (usually 3)
         if (details.live) {
-          this.startPosition = this.computeLivePosition(sliding, details.targetduration, details.totalduration);
+          const partHoldBack = details.serverControl ? details.serverControl.partHoldBack : 0;
+          this.startPosition = this.computeLivePosition(sliding, details.targetduration, details.totalduration, partHoldBack);
           this.log(`Configure startPosition to ${this.startPosition}`);
         } else {
           this.startPosition = 0;
@@ -530,9 +564,9 @@ export default class BaseStreamController extends TaskLoop {
     this.nextLoadPosition = this.startPosition;
   }
 
-  protected computeLivePosition (sliding: number, targetDuration: number, totalDuration: number): number {
+  protected computeLivePosition (sliding: number, targetDuration: number, totalDuration: number, partHoldBack: number): number {
     const { liveSyncDuration, liveSyncDurationCount } = this.config;
-    const targetLatency = liveSyncDuration !== undefined ? liveSyncDuration : liveSyncDurationCount * targetDuration;
+    const targetLatency = partHoldBack || (liveSyncDuration !== undefined ? liveSyncDuration : liveSyncDurationCount * targetDuration);
     return sliding + Math.max(0, totalDuration - targetLatency);
   }
 
