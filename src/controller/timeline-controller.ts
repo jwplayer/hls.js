@@ -443,7 +443,7 @@ class TimelineController extends EventHandler {
   }
 
   onFragParsingUserdata (data: { samples: Array<any> }) {
-    if (!this.enabled || !this.config.enableCEA708Captions) {
+    if (!this.enabled || !this.cea608Parser) {
       return;
     }
 
