@@ -248,7 +248,7 @@ class StreamController extends BaseStreamController {
           return;
         }
 
-        frag = this._ensureFragmentAtLivePoint(levelDetails, bufferEnd, start, end, fragPrevious, fragments, fragLen);
+        frag = this._ensureFragmentAtLivePoint(levelDetails, bufferEnd, start, end, fragPrevious, fragments);
         // if it explicitely returns null don't load any fragment and exit function now
         if (frag === null) {
           return;
@@ -275,14 +275,19 @@ class StreamController extends BaseStreamController {
     }
   }
 
-  _ensureFragmentAtLivePoint (levelDetails, bufferEnd, start, end, fragPrevious, fragments, fragLen) {
+  _ensureFragmentAtLivePoint (levelDetails, bufferEnd, start, end, fragPrevious, fragments) {
     const config = this.hls.config, media = this.media;
 
     let frag;
 
     // check if requested position is within seekable boundaries :
     // logger.log(`start/pos/bufEnd/seeking:${start.toFixed(3)}/${pos.toFixed(3)}/${bufferEnd.toFixed(3)}/${this.media.seeking}`);
-    let maxLatency = config.liveMaxLatencyDuration !== undefined ? config.liveMaxLatencyDuration : config.liveMaxLatencyDurationCount * levelDetails.targetduration;
+    let maxLatency = Infinity;
+    if (config.liveMaxLatencyDuration !== undefined) {
+      maxLatency = config.liveMaxLatencyDuration;
+    } else if (Number.isFinite(config.liveMaxLatencyDurationCount)) {
+      maxLatency = config.liveMaxLatencyDurationCount * levelDetails.targetduration;
+    }
 
     if (bufferEnd < Math.max(start - config.maxFragLookUpTolerance, end - maxLatency)) {
       let liveSyncPosition = this.liveSyncPosition = this.computeLivePosition(start, levelDetails);
@@ -340,13 +345,6 @@ class StreamController extends BaseStreamController {
             }
           }
         }
-      }
-      if (!frag) {
-        /* we have no idea about which fragment should be loaded.
-           so let's load mid fragment. it will help computing playlist sliding and find the right one
-        */
-        frag = fragments[Math.min(fragLen - 1, Math.round(fragLen / 2))];
-        logger.log(`live playlist, switching playlist, unknown, load middle frag : ${frag.sn}`);
       }
     }
 
