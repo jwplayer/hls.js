@@ -22,6 +22,7 @@
     "docs": "esdoc",
     "lint": "eslint src/ && eslint tests/",
     "lint:fix": "eslint src/ tests/ --fix",
+    "sanity-check": "yarn lint && yarn type-check && yarn build && yarn test:unit",
     "pre-push": "yarn lint && yarn test:unit",
     "release:pre": "mversion prerelease && yarn build:release",
     "release:patch": "mversion p && yarn build:release",
@@ -30,7 +31,8 @@
     "test": "yarn test:unit && yarn test:func",
     "test:unit": "karma start karma.conf.js",
     "test:unit:watch": "karma start karma.conf.js --auto-watch --no-single-run",
-    "test:func": "mocha --require ts-node/register tests/functional/auto/setup.js --timeout 40000"
+    "test:func": "mocha --require ts-node/register tests/functional/auto/setup.js --timeout 40000",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "url-toolkit": "^2.1.2"
@@ -70,6 +72,7 @@
     "selenium-webdriver": "^3.1.0",
     "sinon": "^7.1.1",
     "sinon-chai": "^3.2.0",
+    "typescript": "3.7.4",
     "webpack": "^4.19.1",
     "webpack-cli": "^3.1.2",
     "webpack-dev-server": "^2.7.1",
