@@ -1151,7 +1151,10 @@ class StreamController extends BaseStreamController {
         this.hls.trigger(Event.FRAG_BUFFERED, { stats: stats, frag: frag, id: 'main' });
         this.state = State.IDLE;
       }
-      this.tick();
+      // Do not tick when _seekToStartPos needs to be called as seeking to the start can fail on live streams at this point
+      if (this.loadedmetadata || this.startPosition <= 0) {
+        this.tick();
+      }
     }
   }
 
@@ -1311,15 +1314,16 @@ class StreamController extends BaseStreamController {
    * @private
    */
   _seekToStartPos () {
-    const { media } = this;
+    const { media, startPosition } = this;
     const currentTime = media.currentTime;
     // only adjust currentTime if different from startPosition or if startPosition not buffered
     // at that stage, there should be only one buffered range, as we reach that code after first fragment has been buffered
-    const startPosition = media.seeking ? currentTime : this.startPosition;
-    // if currentTime not matching with expected startPosition or startPosition not buffered but close to first buffered
     if (currentTime !== startPosition) {
-      // if startPosition not buffered, let's seek to buffered.start(0)
-      logger.log(`target start position not buffered, seek to buffered.start(0) ${startPosition} from current time ${currentTime} `);
+      if (media.seeking) {
+        logger.log(`could not seek to ${startPosition}, already seeking at ${currentTime}`);
+        return;
+      }
+      logger.log(`seek to target start position ${startPosition} from current time ${currentTime}. ready state ${media.readyState}`);
       media.currentTime = startPosition;
     }
   }
