@@ -397,8 +397,6 @@ class AudioStreamController extends BaseStreamController {
         // we already have details for that level, merge them
         LevelHelper.mergeDetails(curDetails, newDetails);
         sliding = newDetails.fragments[0].start;
-        // TODO
-        // this.liveSyncPosition = this.computeLivePosition(sliding, curDetails);
         if (newDetails.PTSKnown) {
           logger.log(`live audio playlist sliding:${sliding.toFixed(3)}`);
         } else {
@@ -423,7 +421,13 @@ class AudioStreamController extends BaseStreamController {
           logger.log(`start time offset found in playlist, adjust startPosition to ${startTimeOffset}`);
           this.startPosition = startTimeOffset;
         } else {
-          this.startPosition = 0;
+          // if live playlist, set start position to be fragment N-this.config.liveSyncDurationCount (usually 3)
+          if (newDetails.live) {
+            this.startPosition = this.computeLivePosition(sliding, newDetails);
+            logger.log(`[audio track] configure startPosition to ${this.startPosition}`);
+          } else {
+            this.startPosition = 0;
+          }
         }
       }
       this.nextLoadPosition = this.startPosition;
@@ -435,6 +439,11 @@ class AudioStreamController extends BaseStreamController {
 
     // trigger handler right now
     this.tick();
+  }
+
+  computeLivePosition (sliding, levelDetails) {
+    let targetLatency = this.config.liveSyncDuration !== undefined ? this.config.liveSyncDuration : this.config.liveSyncDurationCount * levelDetails.targetduration;
+    return sliding + Math.max(0, levelDetails.totalduration - targetLatency);
   }
 
   onKeyLoaded () {
