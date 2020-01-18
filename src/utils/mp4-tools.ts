@@ -428,14 +428,14 @@ export function computeRawDurationFromSamples (trun): number {
   return duration;
 }
 
-export function offsetStartDTS (initData, fragment, timeOffset) {
+export function offsetStartDTS (initData, fragment, timeOffset): number[] {
+  const result: number[] = [];
   findBox(fragment, ['moof', 'traf']).map(function (traf) {
     return findBox(traf, ['tfhd']).map(function (tfhd) {
       // get the track id from the tfhd
       const id = readUint32(tfhd, 4);
       // assume a 90kHz clock if no timescale was specified
       const timescale = initData[id].timescale || 90e3;
-
       // get the base media decode time from the tfdt
       findBox(traf, ['tfdt']).map(function (tfdt) {
         const version = tfdt.data[tfdt.start];
@@ -449,12 +449,15 @@ export function offsetStartDTS (initData, fragment, timeOffset) {
           baseMediaDecodeTime = Math.max(baseMediaDecodeTime, 0);
           const upper = Math.floor(baseMediaDecodeTime / (UINT32_MAX + 1));
           const lower = Math.floor(baseMediaDecodeTime % (UINT32_MAX + 1));
+          console.log('offsetStartDTS before buffer', baseMediaDecodeTime / timescale, upper, lower, 'offset', timeOffset);
           writeUint32(tfdt, 4, upper);
           writeUint32(tfdt, 8, lower);
+          result.push(baseMediaDecodeTime / timescale);
         }
       });
     });
   });
+  return result;
 }
 
 // TODO: Check if the last moof+mdat pair is part of the valid range

@@ -165,7 +165,7 @@ export function mergeDetails (oldDetails: LevelDetails, newDetails: LevelDetails
   newDetails.PTSKnown = oldDetails.PTSKnown;
 }
 
-export function mergeSubtitlePlaylists (oldPlaylist: LevelDetails, newPlaylist: LevelDetails, referenceStart = 0): void {
+export function mergeSubtitlePlaylists (oldPlaylist: LevelDetails, newPlaylist: LevelDetails, referenceStart = 0): number {
   let lastIndex = -1;
   mapFragmentIntersection(oldPlaylist, newPlaylist, (oldFrag, newFrag, index) => {
     newFrag.start = oldFrag.start;
@@ -177,12 +177,16 @@ export function mergeSubtitlePlaylists (oldPlaylist: LevelDetails, newPlaylist: 
     frags.forEach(frag => {
       frag.start += referenceStart;
     });
-    return;
+  } else {
+    for (let i = lastIndex + 1; i < frags.length; i++) {
+      frags[i].start = (frags[i - 1].start + frags[i - 1].duration);
+    }
   }
 
-  for (let i = lastIndex + 1; i < frags.length; i++) {
-    frags[i].start = (frags[i - 1].start + frags[i - 1].duration);
+  if (frags.length) {
+    return frags[0].start;
   }
+  return 0;
 }
 
 export function mapFragmentIntersection (oldPlaylist: LevelDetails, newPlaylist: LevelDetails, intersectionFn): void {

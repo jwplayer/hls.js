@@ -119,11 +119,13 @@ export default class TransmuxerInterface {
       const contiguous = !trackSwitch && nextSN;
 
       logger.log(`[transmuxer-interface, ${frag.type}]: Starting new transmux session for fragment ${frag.sn}, of level ${frag.level}:
+        type: ${frag.type}
         discontinuity: ${discontinuity}
         trackSwitch: ${trackSwitch}
         contiguous: ${contiguous}
         accurateTimeOffset: ${accurateTimeOffset}
-        timeOffset: ${timeOffset}`);
+        timeOffset: ${timeOffset}
+        defaultInitPTS: ${defaultInitPTS}`);
       this.currentTransmuxSession = chunkMeta;
       const config = new TransmuxConfig(audioCodec, videoCodec, new Uint8Array(initSegment), duration, defaultInitPTS);
       const state = new TransmuxState(discontinuity, contiguous, accurateTimeOffset, trackSwitch, timeOffset);
@@ -163,6 +165,9 @@ export default class TransmuxerInterface {
       });
     } else if (transmuxer) {
       const transmuxResult = transmuxer.flush(chunkMeta);
+
+      console.log('flush to buffer', chunkMeta, 'transmuxResult', transmuxResult);
+
       if (isPromise(transmuxResult)) {
         transmuxResult.then(data => {
           this.handleFlushResult(data, chunkMeta);

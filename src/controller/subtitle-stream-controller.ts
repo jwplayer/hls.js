@@ -45,8 +45,13 @@ export class SubtitleStreamController extends BaseStreamController implements Co
   private lastAVStart: number = 0;
   private readonly _onMediaSeeking: () => void;
 
+  protected readonly logPrefix = '[subtitle-stream-controller]';
+
   constructor (hls: Hls, fragmentTracker: FragmentTracker) {
     super(hls);
+
+    this.log = logger.log.bind(logger, this.logPrefix);
+    this.warn = logger.warn.bind(logger, this.logPrefix);
     this.config = hls.config;
     this.decrypter = new Decrypter(hls, hls.config);
     this.fragCurrent = null;
@@ -130,9 +135,9 @@ export class SubtitleStreamController extends BaseStreamController implements Co
     }
   }
 
-  onMediaAttached (event: Events.MEDIA_ATTACHED, { media }: MediaAttachedData) {
-    this.media = media;
-    media.addEventListener('seeking', this._onMediaSeeking);
+  onMediaAttached (event: Events.MEDIA_ATTACHED, data: MediaAttachedData) {
+    super.onMediaAttached(event, data);
+    data.media.addEventListener('seeking', this._onMediaSeeking);
     this.state = State.IDLE;
   }
 
@@ -196,11 +201,17 @@ export class SubtitleStreamController extends BaseStreamController implements Co
     if (id >= levels.length || id !== currentTrackId || !currentTrack) {
       return;
     }
-
+    let sliding = 0;
     if (details.live && currentTrack.details) {
-      mergeSubtitlePlaylists(currentTrack.details, details, this.lastAVStart);
+      sliding = mergeSubtitlePlaylists(currentTrack.details, details, this.lastAVStart);
     }
     currentTrack.details = details;
+
+    // compute start position
+    if (!this.startFragRequested) {
+      this.setStartPosition(currentTrack.details, sliding);
+    }
+
     this.setInterval(TICK_INTERVAL);
   }
 
@@ -254,6 +265,9 @@ export class SubtitleStreamController extends BaseStreamController implements Co
 
       const { maxBufferHole, maxFragLookUpTolerance } = config;
       const maxConfigBuffer = Math.min(config.maxBufferLength, config.maxMaxBufferLength);
+
+      // TODO: Begin loading at startPosition instead of bufferEnd (especially before anything is buffered)
+
       const bufferedInfo = BufferHelper.bufferedInfo(this._getBuffered(), media.currentTime, maxBufferHole);
       const { end: bufferEnd, len: bufferLen } = bufferedInfo;
 
@@ -288,8 +302,14 @@ export class SubtitleStreamController extends BaseStreamController implements Co
         // only load if fragment is not loaded
         this.fragCurrent = foundFrag;
         this._loadFragForPlayback(foundFrag);
+        this.startFragRequested = true;
       }
     }
+  }
+
+  startLoad (startPosition): void {
+    this.nextLoadPosition = this.startPosition = this.lastCurrentTime = startPosition;
+    this.tick();
   }
 
   stopLoad () {

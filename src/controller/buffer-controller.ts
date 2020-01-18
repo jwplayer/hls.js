@@ -224,10 +224,10 @@ export default class BufferController implements ComponentAPI {
     const chunkStats = chunkMeta.buffering[type];
     const fragStats = frag.stats.buffering;
 
-    const start = performance.now();
-    chunkStats.start = start;
+    const now = performance.now();
+    chunkStats.start = now;
     if (!fragStats.start) {
-      fragStats.start = start;
+      fragStats.start = now;
     }
 
     const operation: BufferOperation = {

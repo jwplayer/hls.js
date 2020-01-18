@@ -1,4 +1,4 @@
-import { InitSegmentData, RemuxedTrack, Remuxer, RemuxerResult } from '../types/remuxer';
+import { RemuxedTrack, Remuxer, RemuxerResult } from '../types/remuxer';
 import { getDuration, getStartDTS, offsetStartDTS, parseInitSegment, InitData } from '../utils/mp4-tools';
 import { TrackSet } from '../types/track';
 import { logger } from '../utils/logger';
@@ -71,7 +71,7 @@ class PassThroughRemuxer implements Remuxer {
   }
 
   // TODO: utilize accurateTimeOffset
-  remux (audioTrack, videoTrack, id3Track, textTrack, timeOffset, accurateTimeOffset): RemuxerResult {
+  remux (audioTrack, videoTrack, id3Track, textTrack, timeOffset, accurateTimeOffset: boolean): RemuxerResult {
     let { initPTS, lastEndDTS } = this;
     const result: RemuxerResult = {
       audio: undefined,
@@ -95,7 +95,6 @@ class PassThroughRemuxer implements Remuxer {
       return result;
     }
 
-    const initSegment: InitSegmentData = {};
     let initData = this.initData;
     if (!initData || !initData.length) {
       this.generateInitSegment(data);
@@ -107,12 +106,18 @@ class PassThroughRemuxer implements Remuxer {
       return result;
     }
     if (this.emitInitSegment) {
-      initSegment.tracks = this.initTracks;
+      result.initSegment = {
+        tracks: this.initTracks,
+        initPTS: initPTS || 0
+      };
       this.emitInitSegment = false;
     }
 
     if (!Number.isFinite(initPTS as number)) {
-      this.initPTS = initSegment.initPTS = initPTS = computeInitPTS(initData, data, timeOffset);
+      this.initPTS = initPTS = computeInitPTS(initData, data, timeOffset);
+      if (result.initSegment) {
+        result.initSegment.initPTS = initPTS;
+      }
     }
 
     const duration = getDuration(data, initData);
@@ -120,7 +125,12 @@ class PassThroughRemuxer implements Remuxer {
 
     const startDTS = lastEndDTS as number;
     const endDTS = duration + startDTS;
-    offsetStartDTS(initData, data, initPTS);
+    console.log('remux before buffer startDTS', startDTS, endDTS, 'lastEndDTS', lastEndDTS, 'initPTS', initPTS);
+
+    const baseMediaDecodeTimes = offsetStartDTS(initData, data, initPTS);
+    if (Math.abs(baseMediaDecodeTimes[0] - startDTS) > 1) {
+      // debugger;
+    }
     this.lastEndDTS = endDTS;
 
     const hasAudio = !!initData.audio;
@@ -145,14 +155,15 @@ class PassThroughRemuxer implements Remuxer {
       hasAudio,
       hasVideo,
       nb: 1,
-      dropped: 0
+      dropped: 0,
+      baseMediaDecodeTimes
     };
 
-    result.audio = track.type === 'audio' ? track : undefined;
-    result.video = track.type !== 'audio' ? track : undefined;
-    result.text = textTrack;
-    result.id3 = id3Track;
-    result.initSegment = initSegment;
+    if (track.type === 'audio') {
+      result.audio = track;
+    } else {
+      result.video = track;
+    }
 
     return result;
   }

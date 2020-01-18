@@ -48,8 +48,12 @@ export function findFragmentByPDT (fragments: Array<Fragment>, PDTValue: number 
 export function findFragmentByPTS (fragPrevious: Fragment | null, fragments: Array<Fragment>, bufferEnd: number = 0, maxFragLookUpTolerance: number = 0): Fragment | null {
   const fragNext = fragPrevious ? fragments[fragPrevious.sn as number - (fragments[0].sn as number) + 1] : null;
   // Prefer the next fragment if it's within tolerance
-  if (fragNext && !fragmentWithinToleranceTest(bufferEnd, maxFragLookUpTolerance, fragNext)) {
-    return fragNext;
+
+  if (fragNext) {
+    const offset = fragmentWithinToleranceTest(bufferEnd, maxFragLookUpTolerance, fragNext);
+    if (offset === 0) {
+      return fragNext;
+    }
   }
   return BinarySearch.search(fragments, fragmentWithinToleranceTest.bind(null, bufferEnd, maxFragLookUpTolerance));
 }
