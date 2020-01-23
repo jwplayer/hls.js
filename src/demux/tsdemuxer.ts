@@ -11,7 +11,7 @@
 
 import * as ADTS from './adts';
 import * as MpegAudio from './mpegaudio';
-import Event from '../events';
+import { Events } from '../events';
 import ExpGolomb from './exp-golomb';
 import SampleAesDecrypter from './sample-aes';
 import { logger } from '../utils/logger';
@@ -327,7 +327,7 @@ class TSDemuxer implements Demuxer {
           break;
         }
       } else {
-        this.observer.trigger(Event.ERROR, { type: ErrorTypes.MEDIA_ERROR, details: ErrorDetails.FRAG_PARSING_ERROR, fatal: false, reason: 'TS packet did not start with 0x47' });
+        this.observer.trigger(Events.ERROR, { type: ErrorTypes.MEDIA_ERROR, details: ErrorDetails.FRAG_PARSING_ERROR, fatal: false, reason: 'TS packet did not start with 0x47' });
       }
     }
 
@@ -388,7 +388,7 @@ class TSDemuxer implements Demuxer {
 
       audioTrack.pesData = null;
     } else {
-      if (audioData && audioData.size) {
+      if (audioData?.size) {
         logger.log('last AAC PES packet truncated,might overlap between fragments');
       }
 
@@ -732,7 +732,7 @@ class TSDemuxer implements Demuxer {
       const samples = this._avcTrack.samples;
       avcSample = samples[samples.length - 1];
     }
-    if (avcSample && avcSample.units) {
+    if (avcSample?.units) {
       const units = avcSample.units;
       lastUnit = units[units.length - 1];
     }
@@ -923,7 +923,7 @@ class TSDemuxer implements Demuxer {
         fatal = true;
       }
       logger.warn(`parsing error:${reason}`);
-      this.observer.trigger(Event.ERROR, { type: ErrorTypes.MEDIA_ERROR, details: ErrorDetails.FRAG_PARSING_ERROR, fatal: fatal, reason: reason });
+      this.observer.trigger(Events.ERROR, { type: ErrorTypes.MEDIA_ERROR, details: ErrorDetails.FRAG_PARSING_ERROR, fatal: fatal, reason: reason });
       if (fatal) {
         return;
       }
@@ -1037,10 +1037,8 @@ function parsePMT (data, offset, mpegSupported, isSampleAes) {
         logger.log('unknown stream type:' + data[offset]);
         break;
       }
-      /* falls through */
-
-      // ISO/IEC 13818-7 ADTS AAC (MPEG-2 lower bit-rate audio)
-    case 0x0f:
+    /* falls through */
+    case 0x0f: // ISO/IEC 13818-7 ADTS AAC (MPEG-2 lower bit-rate audio)
       // logger.log('AAC PID:'  + pid);
       if (result.audio === -1) {
         result.audio = pid;
@@ -1063,9 +1061,7 @@ function parsePMT (data, offset, mpegSupported, isSampleAes) {
         break;
       }
       /* falls through */
-
-      // ITU-T Rec. H.264 and ISO/IEC 14496-10 (lower bit-rate video)
-    case 0x1b:
+    case 0x1b: // ITU-T Rec. H.264 and ISO/IEC 14496-10 (lower bit-rate video)
       // logger.log('AVC PID:'  + pid);
       if (result.avc === -1) {
         result.avc = pid;
