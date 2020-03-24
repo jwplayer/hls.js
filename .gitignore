@@ -6,13 +6,15 @@ node_modules/*
 npm-debug.log
 bower_components/*
 
-# Coverage
+# NYC
+.nyc_output/
 coverage/
 
 # JetBrains
+
 .idea/*
 
 # Build
 /dist
-/gh-pages
+/netlify
 /api-docs

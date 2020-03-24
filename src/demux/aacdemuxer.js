@@ -19,7 +19,6 @@ class AACDemuxer {
   resetTimeStamp () {
   }
 
-  // Source for probe info - https://wiki.multimedia.cx/index.php?title=ADTS
   static probe (data) {
     if (!data) {
       return false;

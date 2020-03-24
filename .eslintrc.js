@@ -1,5 +1,6 @@
 module.exports = {
   'env': {
+    'browser': true,
     'commonjs': true,
     'es6': true
   },
@@ -18,6 +19,10 @@ module.exports = {
   'extends': [
     'eslint:recommended',
     'standard'
+  ],
+  'parser': '@typescript-eslint/parser',
+  'plugins': [
+      '@typescript-eslint'
   ],
   'parserOptions': {
     'sourceType': 'module'
@@ -53,14 +58,14 @@ module.exports = {
 
     // limit code block and line length
     /*
-        "max-len": 1,
-        "max-statements": 1,
-        "max-depth": 1,
-        "max-nested-callbacks": 1,
-        "max-params": 1,
-        "max-statements": 1,
-        "max-statements-per-line": 1
-        */
+    "max-len": 1,
+    "max-statements": 1,
+    "max-depth": 1,
+    "max-nested-callbacks": 1,
+    "max-params": 1,
+    "max-statements": 1,
+    "max-statements-per-line": 1
+    */
 
     // loosening of code-quality rules we may want to fix later
     // (warnings for now)
@@ -70,10 +75,19 @@ module.exports = {
       1,
       'never'
     ],
+
+    'no-restricted-globals': [2,
+      {
+        'name': 'SourceBuffer',
+        'message': 'Use `self.SourceBuffer`'
+      }
+    ],
+
     'no-restricted-properties': [2,
       { 'property': 'findIndex' },  // Intended to block usage of Array.prototype.findIndex
       { 'property': 'find' }        // Intended to block usage of Array.prototype.find
     ],
+
     'standard/no-callback-literal': 1,
     'import/first': 1,
     'no-var': 1,
@@ -87,6 +101,17 @@ module.exports = {
     'no-self-assign': 1,
     'new-cap': 1,
     'no-undefined': 1,
-    'no-global-assign': 2
+    'no-global-assign': 2,
+
+    // new rules that we should probably evaluate at some point
+    'no-void': 0,
+    'prefer-const': 0,
+    'indent': 0,
+    'array-bracket-spacing': 0,
+    'quote-props': 0,
+    'no-prototype-builtins': 0,
+    'no-useless-catch': 0,
+    'dot-notation': 0,
+    'lines-between-class-members': 0
   }
 };

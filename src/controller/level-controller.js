@@ -9,7 +9,6 @@ import { ErrorTypes, ErrorDetails } from '../errors';
 import { isCodecSupportedInMp4 } from '../utils/codecs';
 import { addGroupId, computeReloadInterval } from './level-helper';
 
-const { performance } = window;
 let chromeOrFirefox;
 
 export default class LevelController extends EventHandler {
@@ -120,7 +119,7 @@ export default class LevelController extends EventHandler {
 
     // only keep levels with supported audio/video codecs
     levels = levels.filter(({ audioCodec, videoCodec }) => {
-      return (!audioCodec || isCodecSupportedInMp4(audioCodec)) && (!videoCodec || isCodecSupportedInMp4(videoCodec));
+      return (!audioCodec || isCodecSupportedInMp4(audioCodec, 'audio')) && (!videoCodec || isCodecSupportedInMp4(videoCodec, 'video'));
     });
 
     if (data.audioTracks) {
@@ -411,14 +410,17 @@ export default class LevelController extends EventHandler {
     if (!currentLevel) {
       return;
     }
+
     if (currentLevel.audioGroupIds) {
       let urlId = -1;
-      currentLevel.audioGroupIds.some((groupId, i) => {
-        if (groupId === audioGroupId) {
+
+      for (let i = 0; i < currentLevel.audioGroupIds.length; i++) {
+        if (currentLevel.audioGroupIds[i] === audioGroupId) {
           urlId = i;
-          return true;
+          break;
         }
-      });
+      }
+
       if (urlId !== currentLevel.urlId) {
         currentLevel.urlId = urlId;
         this.startLoad();

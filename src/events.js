@@ -45,9 +45,9 @@ const HlsEvents = {
   LEVEL_UPDATED: 'hlsLevelUpdated',
   // fired when a level's PTS information has been updated after parsing a fragment - data: { details : levelDetails object, level : id of updated level, drift: PTS drift observed when parsing last fragment }
   LEVEL_PTS_UPDATED: 'hlsLevelPtsUpdated',
-  // fired to notify that audio track lists has been updated - data: { audioTracks : audioTracks }
+  // fired to notify that levels have changed after removing a level - data: { levels : [available quality levels] }
   LEVELS_UPDATED: 'hlsLevelsUpdated',
-  // fired to notify that levels have changed outside of a manifest parsing event - data: { levels }
+  // fired to notify that audio track lists has been updated - data: { audioTracks : audioTracks }
   AUDIO_TRACKS_UPDATED: 'hlsAudioTracksUpdated',
   // fired when an audio track switching is requested - data: { id : audio track id }
   AUDIO_TRACK_SWITCHING: 'hlsAudioTrackSwitching',
@@ -59,8 +59,6 @@ const HlsEvents = {
   AUDIO_TRACK_LOADED: 'hlsAudioTrackLoaded',
   // fired to notify that subtitle track lists has been updated - data: { subtitleTracks : subtitleTracks }
   SUBTITLE_TRACKS_UPDATED: 'hlsSubtitleTracksUpdated',
-  // fired to notify that subtitle tracks were cleared as a result of stopping the media
-  SUBTITLE_TRACKS_CLEARED: 'hlsSubtitleTracksCleared',
   // fired when an subtitle track switch occurs - data: { id : subtitle track id }
   SUBTITLE_TRACK_SWITCH: 'hlsSubtitleTrackSwitch',
   // fired when a subtitle track loading starts - data: { url : subtitle track URL, id : subtitle track id }
@@ -112,7 +110,9 @@ const HlsEvents = {
   // fired when a decrypt key loading is completed - data: { frag : fragment object, payload : key payload, stats : { trequest, tfirst, tload, length } }
   KEY_LOADED: 'hlsKeyLoaded',
   // fired upon stream controller state transitions - data: { previousState, nextState }
-  STREAM_STATE_TRANSITION: 'hlsStreamStateTransition'
+  STREAM_STATE_TRANSITION: 'hlsStreamStateTransition',
+  // fired when the live back buffer is reached defined by the liveBackBufferLength config option - data : { bufferEnd: number }
+  LIVE_BACK_BUFFER_REACHED: 'hlsLiveBackBufferReached'
 };
 
 export default HlsEvents;

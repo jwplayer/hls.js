@@ -19,6 +19,7 @@
 - [Fine Tuning](#fine-tuning)
   - [`Hls.DefaultConfig get/set`](#hlsdefaultconfig-getset)
   - [`capLevelToPlayerSize`](#capleveltoplayersize)
+  - [`capLevelOnFPSDrop`](#caplevelonfpsdrop)
   - [`debug`](#debug)
   - [`autoStartLoad`](#autostartload)
   - [`startPosition`](#startposition)
@@ -63,6 +64,11 @@
   - [`captionsTextTrack1LanguageCode`](#captionstexttrack1languagecode)
   - [`captionsTextTrack2Label`](#captionstexttrack2label)
   - [`captionsTextTrack2LanguageCode`](#captionstexttrack2languagecode)
+  - [`captionsTextTrack3Label`](#captionsTextTrack3Label)
+  - [`captionsTextTrack3LanguageCode`](#captionsTextTrack3LanguageCode)
+  - [`captionsTextTrack4Label`](#captionsTextTrack4Label)
+  - [`captionsTextTrack4LanguageCode`](#captionsTextTrack4LanguageCode)
+  - [`renderTextTracksNatively`](#renderTextTracksNatively)
   - [`stretchShortVideoTrack`](#stretchshortvideotrack)
   - [`maxAudioFramesDrift`](#maxaudioframesdrift)
   - [`forceKeyFrameOnDiscontinuity`](#forcekeyframeondiscontinuity)
@@ -89,6 +95,9 @@
   - [`hls.startLevel`](#hlsstartlevel)
   - [`hls.autoLevelEnabled`](#hlsautolevelenabled)
   - [`hls.autoLevelCapping`](#hlsautolevelcapping)
+  - [`hls.capLevelToPlayerSize`](#hlscapleveltoplayersize)
+  - [`hls.bandwidthEstimate`](#hlsbandwidthestimate)
+  - [`hls.removeLevel(levelIndex, urlId)`](#hlsremoveLevel)
 - [Version Control](#version-control)
   - [`Hls.version`](#hlsversion)
 - [Network Loading Control API](#network-loading-control-api)
@@ -133,7 +142,7 @@ Invoke the following static method: `Hls.isSupported()` to check whether your br
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
     if (Hls.isSupported()) {
- 	    console.log("hello hls.js!");
+      console.log("hello hls.js!");
     }
   </script>
 ```
@@ -158,7 +167,7 @@ Let's
       hls.attachMedia(video);
       // MEDIA_ATTACHED event is fired by hls object once MediaSource is ready
       hls.on(Hls.Events.MEDIA_ATTACHED, function () {
-		    console.log("video and hls.js are now bound together !");
+        console.log("video and hls.js are now bound together !");
       });
     }
   </script>
@@ -226,7 +235,7 @@ See sample code below to listen to errors:
     var errorFatal = data.fatal;
 
     switch(data.details) {
-      case hls.ErrorDetails.FRAG_LOAD_ERROR:
+      case Hls.ErrorDetails.FRAG_LOAD_ERROR:
         // ....
         break;
       default:
@@ -237,7 +246,7 @@ See sample code below to listen to errors:
 
 #### Fatal Error Recovery
 
-Hls.js provides means to 'try to' recover fatal network and media errors, through these 2 methods:
+hls.js provides means to 'try to' recover fatal network and media errors, through these 2 methods:
 
 ##### `hls.startLoad()`
 
@@ -293,9 +302,10 @@ Configuration parameters could be provided to hls.js upon instantiation of `Hls`
 ```js
    var config = {
       autoStartLoad: true,
-  	  startPosition : -1,
-      capLevelToPlayerSize: false,
+      startPosition: -1,
       debug: false,
+      capLevelOnFPSDrop: false,
+      capLevelToPlayerSize: false,
       defaultAudioCodec: undefined,
       initialLiveManifestSize: 1,
       maxBufferLength: 30,
@@ -305,47 +315,58 @@ Configuration parameters could be provided to hls.js upon instantiation of `Hls`
       lowBufferWatchdogPeriod: 0.5,
       highBufferWatchdogPeriod: 3,
       nudgeOffset: 0.1,
-      nudgeMaxRetry : 3,
-      maxFragLookUpTolerance: 0.2,
+      nudgeMaxRetry: 3,
+      maxFragLookUpTolerance: 0.25,
       liveSyncDurationCount: 3,
-      liveMaxLatencyDurationCount: 10,
+      liveMaxLatencyDurationCount: Infinity,
       enableWorker: true,
       enableSoftwareAES: true,
       manifestLoadingTimeOut: 10000,
       manifestLoadingMaxRetry: 1,
-      manifestLoadingRetryDelay: 500,
-      manifestLoadingMaxRetryTimeout : 64000,
+      manifestLoadingRetryDelay: 1000,
+      manifestLoadingMaxRetryTimeout: 64000,
       startLevel: undefined,
       levelLoadingTimeOut: 10000,
       levelLoadingMaxRetry: 4,
-      levelLoadingRetryDelay: 500,
+      levelLoadingRetryDelay: 1000,
       levelLoadingMaxRetryTimeout: 64000,
       fragLoadingTimeOut: 20000,
       fragLoadingMaxRetry: 6,
-      fragLoadingRetryDelay: 500,
+      fragLoadingRetryDelay: 1000,
       fragLoadingMaxRetryTimeout: 64000,
       startFragPrefetch: false,
+      fpsDroppedMonitoringPeriod: 5000,
+      fpsDroppedMonitoringThreshold: 0.2,
       appendErrorMaxRetry: 3,
       loader: customLoader,
       fLoader: customFragmentLoader,
       pLoader: customPlaylistLoader,
       xhrSetup: XMLHttpRequestSetupCallback,
       fetchSetup: FetchSetupCallback,
-      abrController: customAbrController,
+      abrController: AbrController,
+      bufferController: BufferController,
+      capLevelController: CapLevelController,
+      fpsController: FPSController,
       timelineController: TimelineController,
       enableWebVTT: true,
       enableCEA708Captions: true,
       stretchShortVideoTrack: false,
-      maxAudioFramesDrift : 1,
+      maxAudioFramesDrift: 1,
       forceKeyFrameOnDiscontinuity: true,
-      abrEwmaFastLive: 5.0,
+      abrEwmaFastLive: 3.0,
       abrEwmaSlowLive: 9.0,
-      abrEwmaFastVoD: 4.0,
-      abrEwmaSlowVoD: 15.0,
+      abrEwmaFastVoD: 3.0,
+      abrEwmaSlowVoD: 9.0,
       abrEwmaDefaultEstimate: 500000,
       abrBandWidthFactor: 0.95,
       abrBandWidthUpFactor: 0.7,
-      minAutoBitrate: 0
+      abrMaxWithRealBitrate: false,
+      maxStarvationDelay: 4,
+      maxLoadingDelay: 4,
+      minAutoBitrate: 0,
+      emeEnabled: false,
+      widevineLicenseUrl: undefined,
+      requestMediaKeySystemAccessFunc: requestMediaKeySystemAccess
   };
 
   var hls = new Hls(config);
@@ -362,6 +383,13 @@ This configuration will be applied by default to all instances.
 
   - if set to true, the adaptive algorithm with limit levels usable in auto-quality by the HTML video element dimensions (width and height). If dimensions between multiple levels are equal, the cap is chosen as the level with the greatest bandwidth.
   - if set to false, levels will not be limited. All available levels could be used in auto-quality mode taking only bandwidth into consideration.
+
+### `capLevelOnFPSDrop`
+
+(default: `false`)
+
+  - when set to true, if the number of dropped frames over the period `config.fpsDroppedMonitoringPeriod` exceeds the ratio set by `config.fpsDroppedMonitoringThreshold`, then the quality level is dropped and capped at this lower level.
+  - when set to false, levels will not be limited. All available levels could be used in auto-quality mode taking only bandwidth into consideration.
 
 ### `debug`
 
@@ -462,7 +490,7 @@ Max nb of nudge retries before hls.js raise a fatal BUFFER_STALLED_ERROR
 
 ### `maxFragLookUpTolerance`
 
-(default 0.2s)
+(default 0.25s)
 
 This tolerance factor is used during fragment lookup.
 Instead of checking whether buffered.end is located within [start, end] range, frag lookup will be done by checking  within [start-maxFragLookUpTolerance, end-maxFragLookUpTolerance] range.
@@ -567,7 +595,7 @@ When set, use this level as the default hls.startLevel. Keep in mind that the st
 
 ### `fragLoadingTimeOut` / `manifestLoadingTimeOut` / `levelLoadingTimeOut`
 
-(default: 60000ms for fragment / 10000ms for level and manifest)
+(default: 20000ms for fragment / 10000ms for level and manifest)
 
 URL Loader timeout.
 A timeout callback will be triggered if loading duration exceeds this timeout.
@@ -651,7 +679,7 @@ Note: If `fLoader` or `pLoader` are used, they overwrite `loader`!
       @param stats.tfirst {number} - performance.now() of first received byte
       @param stats.tload {number} - performance.now() on load complete
       @param stats.loaded {number} - nb of loaded bytes
-      @param [stats.bw] {number} - download bandwidth in bit/s
+      @param [stats.bw] {number} - download bandwidth in bits/s
       @param stats.total {number} - total nb of bytes
       @param context {object} - loader context
       @param networkDetails {object} - loader network details (the xhr for default loaders)
@@ -662,7 +690,7 @@ Note: If `fLoader` or `pLoader` are used, they overwrite `loader`!
       @param stats.tfirst {number} - performance.now() of first received byte
       @param stats.loaded {number} - nb of loaded bytes
       @param [stats.total] {number} - total nb of bytes
-      @param [stats.bw] {number} - current download bandwidth in bit/s (monitored by ABR controller to control emergency switch down)
+      @param [stats.bw] {number} - current download bandwidth in bits/s (monitored by ABR controller to control emergency switch down)
       @param context {object} - loader context
       @param data {string/arraybuffer/sharedarraybuffer} - onProgress data (should be defined only if context.progressData === true)
       @param networkDetails {object} - loader network details (the xhr for default loaders)
@@ -742,7 +770,7 @@ class pLoader extends Hls.DefaultConfig.loader {
 }
 
   var hls = new Hls({
-    pLoader : pLoader,
+    pLoader: pLoader,
   });
 
 ```
@@ -857,6 +885,47 @@ RFC 3066 language code for the text track generated for CEA-708 captions track 2
 
 parameter should be a string
 
+### `captionsTextTrack3Label`
+
+(default: `Unknown CC`)
+
+Label for the text track generated for CEA-708 captions track 3. This is how it will appear in the browser's native menu for subtitles and captions.
+
+parameter should be a string
+
+### `captionsTextTrack3LanguageCode`
+
+(default: ``)
+
+RFC 3066 language code for the text track generated for CEA-708 captions track 3.
+
+parameter should be a string
+
+### `captionsTextTrack4Label`
+
+(default: `Unknown CC`)
+
+Label for the text track generated for CEA-708 captions track 4. This is how it will appear in the browser's native menu for subtitles and captions.
+
+parameter should be a string
+
+### `captionsTextTrack4LanguageCode`
+
+(default: ``)
+
+RFC 3066 language code for the text track generated for CEA-708 captions track 4.
+
+parameter should be a string
+
+### `renderTextTracksNatively`
+
+(default: `true`)
+
+Whether or not render captions natively using the HTMLMediaElement's TextTracks. Disable native captions rendering
+when you want to handle rending of track and track cues using `NON_NATIVE_TEXT_TRACKS_FOUND` and `CUES_PARSED` events.
+
+parameter should be a boolean
+  
 ### `stretchShortVideoTrack`
 
 (default: `false`)
@@ -896,7 +965,7 @@ parameter should be a boolean
 
 ### `abrEwmaFastLive`
 
-(default: `5.0`)
+(default: `3.0`)
 
 Fast bitrate Exponential moving average half-life, used to compute average bitrate for Live streams.
 Half of the estimate is based on the last abrEwmaFastLive seconds of sample history.
@@ -916,7 +985,7 @@ parameter should be a float greater than [abrEwmaFastLive](#abrewmafastlive)
 
 ### `abrEwmaFastVoD`
 
-(default: `4.0`)
+(default: `3.0`)
 
 Fast bitrate Exponential moving average half-life, used to compute average bitrate for VoD streams.
 Half of the estimate is based on the last abrEwmaFastVoD seconds of sample history.
@@ -926,7 +995,7 @@ parameter should be a float greater than 0
 
 ### `abrEwmaSlowVoD`
 
-(default: `15.0`)
+(default: `9.0`)
 
 Slow bitrate Exponential moving average half-life, used to compute average bitrate for VoD streams.
 Half of the estimate is based on the last abrEwmaSlowVoD seconds of sample history.
@@ -938,7 +1007,7 @@ parameter should be a float greater than [abrEwmaFastVoD](#abrewmafastvod)
 
 (default: `500000`)
 
-Default bandwidth estimate in bits/second prior to collecting fragment bandwidth samples.
+Default bandwidth estimate in bits/s prior to collecting fragment bandwidth samples.
 
 parameter should be a float
 
@@ -947,14 +1016,14 @@ parameter should be a float
 (default: `0.95`)
 
 Scale factor to be applied against measured bandwidth average, to determine whether we can stay on current or lower quality level.
-If `abrBandWidthFactor * bandwidth average < level.bitrate` then ABR can switch to that level providing that it is equal or less than current level.
+If `abrBandWidthFactor * bandwidth average > level.bitrate` then ABR can switch to that level providing that it is equal or less than current level.
 
 ### `abrBandWidthUpFactor`
 
 (default: `0.7`)
 
 Scale factor to be applied against measured bandwidth average, to determine whether we can switch up to a higher quality level.
-If `abrBandWidthUpFactor * bandwidth average < level.bitrate` then ABR can switch up to that quality level.
+If `abrBandWidthUpFactor * bandwidth average > level.bitrate` then ABR can switch up to that quality level.
 
 ### `abrMaxWithRealBitrate`
 
@@ -1053,6 +1122,26 @@ Default value is `hls.firstLevel`.
 
 Default value is `-1` (no level capping).
 
+### `hls.capLevelToPlayerSize`
+
+- get: Enables or disables level capping. If disabled after previously enabled, `nextLevelSwitch` will be immediately called.
+- set: Whether level capping is enabled.
+
+Default value is set via [`capLevelToPlayerSize`](#capleveltoplayersize) in config.
+
+### `hls.bandwidthEstimate`
+
+get: Returns the current bandwidth estimate in bits/s, if available. Otherwise, `NaN` is returned.
+
+
+### `hls.removeLevel(levelIndex, urlId)`
+
+Remove a loaded level from the list of levels, or a level url in from a list of redundant level urls.
+This can be used to remove a rendition or playlist url that errors frequently from the list of levels that a user
+or hls.js can choose from.
+
+Modifying the levels this way will result in a `Hls.Events.LEVELS_UPDATED` event being triggered.
+
 ## Version Control
 
 ### `Hls.version`
@@ -1110,12 +1199,18 @@ get : position of live sync point (ie edge of live position minus safety delay d
 
 ## Runtime Events
 
-Hls.js fires a bunch of events, that could be registered as below:
+hls.js fires a bunch of events, that could be registered and unregistered as below:
 
 ```js
-hls.on(Hls.Events.LEVEL_LOADED,function(event,data) {
+function onLevelLoaded (event, data) {
   var level_duration = data.details.totalduration;
-});
+}
+// subscribe event
+hls.on(Hls.Events.LEVEL_LOADED, onLevelLoaded);
+// unsubscribe event
+hls.off(Hls.Events.LEVEL_LOADED, onLevelLoaded);
+// subscribe for a single event call only
+hls.once(Hls.Events.LEVEL_LOADED, onLevelLoaded);
 ```
 Full list of Events is available below:
 
@@ -1161,6 +1256,8 @@ Full list of Events is available below:
     -  data: { details : `levelDetails` object (please see [below](#leveldetails) for more information), level : id of updated level }
   - `Hls.Events.LEVEL_PTS_UPDATED`  - fired when a level's PTS information has been updated after parsing a fragment
     -  data: { details : `levelDetails` object (please see [below](#leveldetails) for more information), level : id of updated level, drift: PTS drift observed when parsing last fragment }
+  - `Hls.Events.LEVELS_UPDATED`  - fired when a level is removed after calling `removeLevel()`
+    -  data: { levels : [ available quality levels ] }
   - `Hls.Events.AUDIO_TRACKS_UPDATED`  - fired to notify that audio track lists has been updated
     -  data: { audioTracks : audioTracks }
   - `Hls.Events.AUDIO_TRACK_SWITCHING`  - fired when an audio track switching is requested
@@ -1262,6 +1359,8 @@ Full list of errors is described below:
     - data: { type : `NETWORK_ERROR`, details : `Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT`, fatal : `true`, url : manifest URL, loader : URL loader }
   - `Hls.ErrorDetails.MANIFEST_PARSING_ERROR` - raised when manifest parsing failed to find proper content
     - data: { type : `NETWORK_ERROR`, details : `Hls.ErrorDetails.MANIFEST_PARSING_ERROR`, fatal : `true`, url : manifest URL, reason : parsing error reason }
+  - `Hls.ErrorDetails.LEVEL_EMPTY_ERROR` - raised when loaded level contains no fragments
+    - data: { type : `NETWORK_ERROR`, details : `Hls.ErrorDetails.LEVEL_EMPTY_ERROR`, url: playlist URL, reason: error reason, level: index of the bad level }
   - `Hls.ErrorDetails.LEVEL_LOAD_ERROR` - raised when level loading fails because of a network error
     - data: { type : `NETWORK_ERROR`, details : `Hls.ErrorDetails.LEVEL_LOAD_ERROR`, fatal : `true`, url : level URL, response : { code: error code, text: error text }, loader : URL loader }
   - `Hls.ErrorDetails.LEVEL_LOAD_TIMEOUT` - raised when level loading fails because of a timeout
@@ -1300,7 +1399,7 @@ Full list of errors is described below:
   - `Hls.ErrorDetails.BUFFER_SEEK_OVER_HOLE` - raised after hls.js seeks over a buffer hole to unstuck the playback,
     - data: { type : `MEDIA_ERROR`, details : `Hls.ErrorDetails.BUFFER_SEEK_OVER_HOLE`, fatal : `false`, hole : hole duration }
   - `Hls.ErrorDetails.BUFFER_NUDGE_ON_STALL` - raised when playback is stuck although currentTime is in a buffered area
-    - data: { type : `MEDIA_ERROR`, details : `Hls.ErrorDetails.BUFFER_STALLED_ERROR`, fatal : `true` }
+    - data: { type : `MEDIA_ERROR`, details : `Hls.ErrorDetails.BUFFER_NUDGE_ON_STALL`, fatal : `true` }
 
 ### Mux Errors
 

@@ -2,6 +2,7 @@ import Event from '../events';
 import EventHandler from '../event-handler';
 import { logger } from '../utils/logger';
 import { computeReloadInterval } from './level-helper';
+import { clearCurrentCues } from '../utils/texttrack-utils';
 
 class SubtitleTrackController extends EventHandler {
   constructor (hls) {
@@ -19,6 +20,12 @@ class SubtitleTrackController extends EventHandler {
      * @member {boolean} subtitleDisplay Enable/disable subtitle display rendering
      */
     this.subtitleDisplay = true;
+
+    /**
+     * Keeps reference to a default track id when media has not been attached yet
+     * @member {number}
+     */
+    this.queuedDefaultTrack = null;
   }
 
   destroy () {
@@ -32,9 +39,9 @@ class SubtitleTrackController extends EventHandler {
       return;
     }
 
-    if (this.queuedDefaultTrack) {
+    if (Number.isFinite(this.queuedDefaultTrack)) {
       this.subtitleTrack = this.queuedDefaultTrack;
-      delete this.queuedDefaultTrack;
+      this.queuedDefaultTrack = null;
     }
 
     this.trackChangeListener = this._onTextTracksChanged.bind(this);
@@ -60,6 +67,17 @@ class SubtitleTrackController extends EventHandler {
       this.media.textTracks.removeEventListener('change', this.trackChangeListener);
     }
 
+    if (Number.isFinite(this.subtitleTrack)) {
+      this.queuedDefaultTrack = this.subtitleTrack;
+    }
+
+    const textTracks = filterSubtitleTracks(this.media.textTracks);
+    // Clear loaded cues on media detachment from tracks
+    textTracks.forEach((track) => {
+      clearCurrentCues(track);
+    });
+    // Disable all subtitle tracks before detachment so when reattached only tracks in that content are enabled.
+    this.subtitleTrack = -1;
     this.media = null;
   }
 
@@ -202,7 +220,7 @@ class SubtitleTrackController extends EventHandler {
 
   _onTextTracksChanged () {
     // Media is undefined when switching streams via loadSource()
-    if (!this.media || !this.hls.config.renderNatively) {
+    if (!this.media) {
       return;
     }
 

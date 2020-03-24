@@ -35,7 +35,9 @@ export class SubtitleStreamController extends BaseStreamController {
     this.tracksBuffered = [];
     this.currentTrackId = -1;
     this.decrypter = new Decrypter(hls, hls.config);
+    // lastAVStart stores the time in seconds for the start time of a level load
     this.lastAVStart = 0;
+    this._onMediaSeeking = this.onMediaSeeking.bind(this);
   }
 
   onSubtitleFragProcessed (data) {
@@ -74,12 +76,22 @@ export class SubtitleStreamController extends BaseStreamController {
     }
   }
 
-  onMediaAttached (data) {
-    this.media = data.media;
+  onMediaAttached ({ media }) {
+    this.media = media;
+    media.addEventListener('seeking', this._onMediaSeeking);
     this.state = State.IDLE;
   }
 
   onMediaDetaching () {
+    if (!this.media) {
+      return;
+    }
+    this.media.removeEventListener('seeking', this._onMediaSeeking);
+    this.fragmentTracker.removeAllFragments();
+    this.currentTrackId = -1;
+    this.tracks.forEach((track) => {
+      this.tracksBuffered[track.id] = [];
+    });
     this.media = null;
     this.state = State.STOPPED;
   }
@@ -107,7 +119,7 @@ export class SubtitleStreamController extends BaseStreamController {
   onSubtitleTrackSwitch (data) {
     this.currentTrackId = data.id;
 
-    if (!this.tracks || this.currentTrackId === -1) {
+    if (!this.tracks || !this.tracks.length || this.currentTrackId === -1) {
       this.clearInterval();
       return;
     }
@@ -230,5 +242,9 @@ export class SubtitleStreamController extends BaseStreamController {
 
   _getBuffered () {
     return this.tracksBuffered[this.currentTrackId] || [];
+  }
+
+  onMediaSeeking () {
+    this.fragPrevious = null;
   }
 }

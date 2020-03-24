@@ -41,7 +41,7 @@ export default class GapController {
       if (stalled !== null) {
         // The playhead is now moving, but was previously stalled
         if (this.stallReported) {
-          const stalledDuration = window.performance.now() - stalled;
+          const stalledDuration = self.performance.now() - stalled;
           logger.warn(`playback not stuck anymore @${currentTime}, after ${Math.round(stalledDuration)}ms`);
           this.stallReported = false;
         }
@@ -74,8 +74,7 @@ export default class GapController {
       // Waiting for seeking in a buffered range to complete
       const hasEnoughBuffer = bufferInfo.len > MAX_START_GAP_JUMP;
       // Next buffered range is too far ahead to jump to while still seeking
-      const noBufferGap = !nextStart ||
-          (nextStart - currentTime > MAX_START_GAP_JUMP && !this.fragmentTracker.getPartialFragment(currentTime));
+      const noBufferGap = !nextStart || nextStart - currentTime > MAX_START_GAP_JUMP;
       if (hasEnoughBuffer || noBufferGap) {
         return;
       }
@@ -85,7 +84,7 @@ export default class GapController {
 
     // Skip start gaps if we haven't played, but the last poll detected the start of a stall
     // The addition poll gives the browser a chance to jump the gap for us
-    if (!this.moved && this.stalled !== null) {
+    if (!this.moved && this.stalled) {
       // Jump start gaps within jump threshold
       const startJump = Math.max(nextStart, bufferInfo.start || 0) - currentTime;
       if (startJump > 0 && startJump <= MAX_START_GAP_JUMP) {
@@ -95,7 +94,7 @@ export default class GapController {
     }
 
     // Start tracking stall time
-    const tnow = window.performance.now();
+    const tnow = self.performance.now();
     if (stalled === null) {
       this.stalled = tnow;
       return;
@@ -138,7 +137,7 @@ export default class GapController {
     // needs to cross some sort of threshold covering all source-buffers content
     // to start playing properly.
     if (bufferInfo.len > config.maxBufferHole &&
-        stalledDurationMs > config.highBufferWatchdogPeriod * 1000) {
+      stalledDurationMs > config.highBufferWatchdogPeriod * 1000) {
       logger.warn('Trying to nudge playhead over buffer-hole');
       // Try to nudge currentTime over a buffer hole if we've been stalling for the configured amount of seconds
       // We only try to jump the hole if it's under the configured size

@@ -17,6 +17,7 @@ import SampleAesDecrypter from './sample-aes';
 // import Hex from '../utils/hex';
 import { logger } from '../utils/logger';
 import { ErrorTypes, ErrorDetails } from '../errors';
+import { utf8ArrayToStr } from './id3';
 
 // We are using fixed track IDs for driving the MP4 remuxer
 // instead of following the TS PIDs.
@@ -94,7 +95,6 @@ class TSDemuxer {
       inputTimeScale: 90000,
       sequenceNumber: 0,
       samples: [],
-      len: 0,
       dropped: type === 'video' ? 0 : undefined,
       isAAC: type === 'audio' ? true : undefined,
       duration: type === 'audio' ? duration : undefined
@@ -184,7 +184,7 @@ class TSDemuxer {
         switch (pid) {
         case avcId:
           if (stt) {
-            if (avcData && (pes = parsePES(avcData)) && pes.pts !== undefined) {
+            if (avcData && (pes = parsePES(avcData))) {
               parseAVCPES(pes, false);
             }
 
@@ -197,7 +197,7 @@ class TSDemuxer {
           break;
         case audioId:
           if (stt) {
-            if (audioData && (pes = parsePES(audioData)) && pes.pts !== undefined) {
+            if (audioData && (pes = parsePES(audioData))) {
               if (audioTrack.isAAC) {
                 parseAACPES(pes);
               } else {
@@ -213,7 +213,7 @@ class TSDemuxer {
           break;
         case id3Id:
           if (stt) {
-            if (id3Data && (pes = parsePES(id3Data)) && pes.pts !== undefined) {
+            if (id3Data && (pes = parsePES(id3Data))) {
               parseID3PES(pes);
             }
 
@@ -279,7 +279,7 @@ class TSDemuxer {
       }
     }
     // try to parse last PES packets
-    if (avcData && (pes = parsePES(avcData)) && pes.pts !== undefined) {
+    if (avcData && (pes = parsePES(avcData))) {
       parseAVCPES(pes, true);
       avcTrack.pesData = null;
     } else {
@@ -287,7 +287,7 @@ class TSDemuxer {
       avcTrack.pesData = avcData;
     }
 
-    if (audioData && (pes = parsePES(audioData)) && pes.pts !== undefined) {
+    if (audioData && (pes = parsePES(audioData))) {
       if (audioTrack.isAAC) {
         parseAACPES(pes);
       } else {
@@ -304,7 +304,7 @@ class TSDemuxer {
       audioTrack.pesData = audioData;
     }
 
-    if (id3Data && (pes = parsePES(id3Data)) && pes.pts !== undefined) {
+    if (id3Data && (pes = parsePES(id3Data))) {
       parseID3PES(pes);
       id3Track.pesData = null;
     } else {
@@ -366,7 +366,7 @@ class TSDemuxer {
       switch (data[offset]) {
       case 0xcf: // SAMPLE-AES AAC
         if (!isSampleAes) {
-          logger.log('unkown stream type:' + data[offset]);
+          logger.log('unknown stream type:' + data[offset]);
           break;
         }
         /* falls through */
@@ -391,7 +391,7 @@ class TSDemuxer {
 
       case 0xdb: // SAMPLE-AES AVC
         if (!isSampleAes) {
-          logger.log('unkown stream type:' + data[offset]);
+          logger.log('unknown stream type:' + data[offset]);
           break;
         }
         /* falls through */
@@ -423,7 +423,7 @@ class TSDemuxer {
         break;
 
       default:
-        logger.log('unkown stream type:' + data[offset]);
+        logger.log('unknown stream type:' + data[offset]);
         break;
       }
       // move to the next table entry
@@ -499,6 +499,9 @@ class TSDemuxer {
       // 9 bytes : 6 bytes for PES header + 3 bytes for PES extension
       payloadStartOffset = pesHdrLen + 9;
 
+      if (stream.size <= payloadStartOffset) {
+        return null;
+      }
       stream.size -= payloadStartOffset;
       // reassemble PES packet
       pesData = new Uint8Array(stream.size);
@@ -534,6 +537,18 @@ class TSDemuxer {
     if (avcSample.units.length && avcSample.frame) {
       const samples = avcTrack.samples;
       const nbSamples = samples.length;
+      // if sample does not have PTS/DTS, patch with last sample PTS/DTS
+      if (isNaN(avcSample.pts)) {
+        if (nbSamples) {
+          const lastSample = samples[nbSamples - 1];
+          avcSample.pts = lastSample.pts;
+          avcSample.dts = lastSample.dts;
+        } else {
+          // dropping samples, no timestamp found
+          avcTrack.dropped++;
+          return;
+        }
+      }
       // only push AVC sample if starting with a keyframe is not mandatory OR
       //    if keyframe already found in this fragment OR
       //       keyframe found in last fragment (track.sps) AND
@@ -687,6 +702,32 @@ class TSDemuxer {
                   }
                 }
               }
+            }
+          } else if (payloadType === 5 && expGolombDecoder.bytesAvailable !== 0) {
+            endOfCaptions = true;
+
+            if (payloadSize > 16) {
+              const uuidStrArray = [];
+              for (i = 0; i < 16; i++) {
+                uuidStrArray.push(expGolombDecoder.readUByte().toString(16));
+
+                if (i === 3 || i === 5 || i === 7 || i === 9) {
+                  uuidStrArray.push('-');
+                }
+              }
+              const length = payloadSize - 16;
+              const userDataPayloadBytes = new Uint8Array(length);
+              for (i = 0; i < length; i++) {
+                userDataPayloadBytes[i] = expGolombDecoder.readUByte();
+              }
+
+              this._insertSampleInOrder(this._txtTrack.samples, {
+                pts: pes.pts,
+                payloadType: payloadType,
+                uuid: uuidStrArray.join(''),
+                userDataBytes: userDataPayloadBytes,
+                userData: utf8ArrayToStr(userDataPayloadBytes.buffer)
+              });
             }
           } else if (payloadSize < expGolombDecoder.bytesAvailable) {
             for (i = 0; i < payloadSize; i++) {
@@ -995,17 +1036,19 @@ class TSDemuxer {
 
     // scan for aac samples
     while (offset < len) {
-      if (ADTS.isHeader(data, offset) && (offset + 5) < len) {
-        let frame = ADTS.appendFrame(track, data, offset, pts, frameIndex);
-        if (frame) {
-          // logger.log(`${Math.round(frame.sample.pts)} : AAC`);
-          offset += frame.length;
-          stamp = frame.sample.pts;
-          frameIndex++;
-        } else {
-          // logger.log('Unable to parse AAC frame');
-          break;
+      if (ADTS.isHeader(data, offset)) {
+        if ((offset + 5) < len) {
+          const frame = ADTS.appendFrame(track, data, offset, pts, frameIndex);
+          if (frame) {
+            offset += frame.length;
+            stamp = frame.sample.pts;
+            frameIndex++;
+            continue;
+          }
         }
+        // We are at an ADTS header, but do not have enough data for a frame
+        // Remaining data will be added to aacOverFlow
+        break;
       } else {
         // nothing found, keep looking
         offset++;
