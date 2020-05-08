@@ -92,23 +92,50 @@ async function testLoadedData (url, config) {
   expect(result, JSON.stringify(result, null, 2)).to.have.property('code').which.equals('loadeddata');
 }
 
+async function testIdleBufferLength (url, config) {
+  const result = await browser.executeAsyncScript(
+    (url, config) => {
+      const callback = arguments[arguments.length - 1];
+      const autoplay = false;
+      window.startStream(url, config, callback, autoplay);
+      const video = window.video;
+      const maxBufferLength = window.hls.config.maxBufferLength;
+      video.onprogress = function () {
+        const buffered = video.buffered;
+        if (buffered.length) {
+          const bufferEnd = buffered.end(buffered.length - 1);
+          const duration = video.duration;
+          console.log(`[log] > progress: ${bufferEnd.toFixed(2)}/${duration.toFixed(2)} buffered.length: ${buffered.length}`);
+          if (bufferEnd >= maxBufferLength || bufferEnd > duration - 1) {
+            callback({ code: 'loadeddata', logs: window.logString });
+          }
+        }
+      };
+    },
+    url,
+    config
+  );
+  expect(result, JSON.stringify(result, null, 2)).to.have.property('code').which.equals('loadeddata');
+}
+
 async function testSmoothSwitch (url, config) {
   const result = await browser.executeAsyncScript(
     (url, config) => {
       let callback = arguments[arguments.length - 1];
       window.startStream(url, config, callback);
       const video = window.video;
-      video.onloadeddata = () => {
+      window.hls.once(window.Hls.Events.FRAG_CHANGED, (event, data) => {
         window.switchToHighestLevel('next');
-      };
+      });
       window.hls.on(window.Hls.Events.LEVEL_SWITCHED, (event, data) => {
+        console.log(`[test] > level switched: ${data.level}`);
         let currentTime = video.currentTime;
         if (data.level === window.hls.levels.length - 1) {
-          console.log(`[log] > switched on level: ${data.level}`);
+          console.log(`[test] > switched on level: ${data.level}`);
           window.setTimeout(() => {
             let newCurrentTime = video.currentTime;
             console.log(
-              `[log] > currentTime delta : ${newCurrentTime - currentTime}`
+              `[test] > currentTime delta : ${newCurrentTime - currentTime}`
             );
             callback({
               code: newCurrentTime > currentTime,
@@ -203,13 +230,13 @@ async function testIsPlayingVOD (url, config) {
         if (expectedPlaying) {
           window.setTimeout(() => {
             console.log(
-              `video expected playing. [last currentTime/new currentTime]=[${currentTime}/${video.currentTime}]`
+              `[test] > video expected playing. [last currentTime/new currentTime]=[${currentTime}/${video.currentTime}]`
             );
             callback({ playing: currentTime !== video.currentTime });
           }, 5000);
         } else {
           console.log(
-            `video not playing. [paused/ended/buffered.length]=[${video.paused}/${video.ended}/${video.buffered.length}]`
+            `[test] > video not playing. [paused/ended/buffered.length]=[${video.paused}/${video.ended}/${video.buffered.length}]`
           );
           callback({ playing: false });
         }
@@ -380,6 +407,10 @@ describe(`testing hls.js playback in the browser on "${browserDescription}"`, fu
           testSeekOnLive.bind(null, url, config)
         );
       } else {
+        it(
+          `should buffer up to maxBufferLength or video.duration for ${stream.description}`,
+          testIdleBufferLength.bind(null, url, config)
+        );
         it(
           `should play ${stream.description}`,
           testIsPlayingVOD.bind(null, url, config)
