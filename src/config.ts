@@ -4,7 +4,8 @@ import AudioTrackController from './controller/audio-track-controller';
 import BufferController from './controller/buffer-controller';
 import CapLevelController from './controller/cap-level-controller';
 import FPSController from './controller/fps-controller';
-import TimelineController from './controller/timeline-controller';
+
+import { TimelineController } from './controller/timeline-controller';
 import SubtitleTrackController from './controller/subtitle-track-controller';
 import EMEController from './controller/eme-controller';
 
@@ -38,10 +39,16 @@ type CapLevelControllerConfig = {
   capLevelToPlayerSize: boolean
 };
 
+export type DRMSystemOptions = {
+  audioRobustness?: string,
+  videoRobustness?: string,
+}
+
 export type EMEControllerConfig = {
   licenseXhrSetup?: (xhr: XMLHttpRequest, url: string) => void,
   emeEnabled: boolean,
   widevineLicenseUrl?: string,
+  drmSystemOptions: DRMSystemOptions,
   requestMediaKeySystemAccessFunc: MediaKeyFunc | null,
 };
 
@@ -142,7 +149,7 @@ export type HlsConfig =
     // Subtitle
     subtitleStreamController?: any, // TODO(typescript-subtitlestreamcontroller): Type once file is done
     subtitleTrackController?: any, // TODO(typescript-subtitletrackcontroller): Type once file is done
-    timelineController?: any, // TODO(typescript-timelinecontroller): Type once file is done
+    timelineController?: typeof TimelineController,
     // EME
     emeController?: typeof EMEController,
 
@@ -238,6 +245,7 @@ export const hlsDefaultConfig: HlsConfig = {
   minAutoBitrate: 0, // used by hls
   emeEnabled: false, // used by eme-controller
   widevineLicenseUrl: void 0, // used by eme-controller
+  drmSystemOptions: {}, // used by eme-controller
   requestMediaKeySystemAccessFunc: requestMediaKeySystemAccess, // used by eme-controller
   testBandwidth: true,
   progressive: true,
