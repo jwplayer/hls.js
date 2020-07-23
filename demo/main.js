@@ -262,6 +262,7 @@ function loadSelectedStream () {
 
   hls.on(Hls.Events.MEDIA_DETACHED, function () {
     logStatus('Media element detached');
+    clearInterval(hls.bufferTimer);
     bufferingIdx = -1;
     tracks = [];
     events.video.push({
@@ -269,6 +270,13 @@ function loadSelectedStream () {
       type: 'Media detached'
     });
     trimEventHistory();
+  });
+
+  hls.on(Hls.Events.DESTROYING, function () {
+    clearInterval(hls.bufferTimer);
+  });
+  hls.on(Hls.Events.BUFFER_RESET, function () {
+    clearInterval(hls.bufferTimer);
   });
 
   hls.on(Hls.Events.FRAG_PARSING_INIT_SEGMENT, function (name, data) {
@@ -1310,6 +1318,9 @@ function addChartEventListeners (hls) {
   }, chart);
   hls.on(Hls.Events.BUFFER_CREATED, (eventName, { tracks }) => {
     chart.updateSourceBuffers(tracks, hls.media);
+  }, chart);
+  hls.on(Hls.Events.BUFFER_RESET, () => {
+    chart.removeSourceBuffers();
   }, chart);
   hls.on(Hls.Events.LEVELS_UPDATED, (eventName, { levels }) => {
     chart.removeType('level');
