@@ -351,7 +351,7 @@ export class TimelineChart {
 
   removeSourceBuffers () {
     const { labels, datasets } = this.chart.data;
-    if (labels[0] === 'media buffer') {
+    while ((labels[0] || '').indexOf('buffer') > -1) {
       labels.shift();
       datasets.shift();
     }
