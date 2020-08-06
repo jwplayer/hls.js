@@ -274,7 +274,7 @@ export class TimelineChart {
       return;
     }
     // eslint-disable-next-line no-restricted-properties
-    const fragData = arrayFind(levelDataSet.data, fragData => fragData.relurl === frag.relurl);
+    const fragData = arrayFind(levelDataSet.data, fragData => fragData.relurl === frag.relurl && fragData.sn === frag.sn);
     if (fragData && fragData !== frag) {
       Object.assign(fragData, frag);
     }
@@ -288,6 +288,8 @@ export class TimelineChart {
     const { labels, datasets } = this.chart.data;
     const trackTypes = Object.keys(tracks).sort((type) => type === 'video' ? 1 : -1);
     const mediaBufferData = [];
+
+    this.removeSourceBuffers();
 
     this.media = media;
 
@@ -351,9 +353,12 @@ export class TimelineChart {
 
   removeSourceBuffers () {
     const { labels, datasets } = this.chart.data;
-    while ((labels[0] || '').indexOf('buffer') > -1) {
-      labels.shift();
-      datasets.shift();
+    let i = datasets.length;
+    while (i--) {
+      if ((labels[0] || '').indexOf('buffer') > -1) {
+        datasets.splice(i, 1);
+        labels.splice(i, 1);
+      }
     }
   }
 

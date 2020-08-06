@@ -106,9 +106,9 @@ class StreamController extends BaseStreamController {
       this._doTickIdle();
       break;
     case State.WAITING_LEVEL:
-      var level = this.levels[this.level];
-      // check if playlist is already loaded
-      if (level && level.details) {
+      var details = this.levels[this.level]?.details;
+      // check if playlist is already loaded (must be current level for live)
+      if (details && (!details.live || this.levelLastLoaded === this.level)) {
         this.state = State.IDLE;
       }
 
@@ -300,7 +300,7 @@ class StreamController extends BaseStreamController {
       let liveSyncPosition = this.liveSyncPosition = this.computeLivePosition(start, levelDetails);
       bufferEnd = liveSyncPosition;
       if (media && !media.paused && media.readyState && media.duration > liveSyncPosition && liveSyncPosition > media.currentTime) {
-        logger.log(`buffer end: ${bufferEnd.toFixed(3)} is located too far from the end of live sliding playlist, reset currentTime to : ${liveSyncPosition.toFixed(3)}`);
+        logger.warn(`buffer end: ${bufferEnd.toFixed(3)} is located too far from the end of live sliding playlist, reset currentTime to : ${liveSyncPosition.toFixed(3)}`);
         media.currentTime = liveSyncPosition;
       }
 
@@ -392,7 +392,9 @@ class StreamController extends BaseStreamController {
               logger.warn('Previous fragment was dropped with large PTS gap between audio and video. Maybe fragment is not starting with a keyframe? Loading previous one to try to overcome this');
             } else {
               fragNextLoad = nextSnFrag;
-              logger.log(`Re-loading fragment with SN: ${fragNextLoad.sn}`);
+              if (this.fragmentTracker.getState(fragNextLoad) !== FragmentState.OK) {
+                logger.log(`Re-loading fragment with SN: ${fragNextLoad.sn}`);
+              }
             }
           } else {
             fragNextLoad = null;
@@ -423,7 +425,7 @@ class StreamController extends BaseStreamController {
   }
 
   _loadKey (frag, levelDetails) {
-    logger.log(`Loading key for ${frag.sn} of [${levelDetails.startSN} ,${levelDetails.endSN}],level ${this.level}`);
+    logger.log(`Loading key for ${frag.sn} of [${levelDetails.startSN}-${levelDetails.endSN}], level ${this.level}`);
     this.state = State.KEY_LOADING;
     this.hls.trigger(Event.KEY_LOADING, { frag });
   }
@@ -446,7 +448,9 @@ class StreamController extends BaseStreamController {
       frag.autoLevel = this.hls.autoLevelEnabled;
       frag.bitrateTest = this.bitrateTest;
 
-      logger.log(`Loading ${frag.sn} of [${levelDetails.startSN} ,${levelDetails.endSN}],level ${this.level}, currentTime:${pos.toFixed(3)},bufferEnd:${bufferEnd.toFixed(3)}`);
+      logger.log(`Loading ${frag.sn} of [${levelDetails.startSN}-${levelDetails.endSN}], level ${this.level}, ${
+        this.loadedmetadata ? 'currentTime' : 'nextLoadPosition'
+      }: ${parseFloat(pos.toFixed(3))}, bufferEnd: ${parseFloat(bufferEnd.toFixed(3))}`);
 
       this.hls.trigger(Event.FRAG_LOADING, { frag });
       // lazy demuxer init, as this could take some time ... do it during frag loading
@@ -830,7 +834,7 @@ class StreamController extends BaseStreamController {
       }
       this.nextLoadPosition = this.startPosition;
     }
-    // only switch batck to IDLE state if we were waiting for level to start downloading a new fragment
+    // only switch back to IDLE state if we were waiting for level to start downloading a new fragment
     if (this.state === State.WAITING_LEVEL) {
       this.state = State.IDLE;
     }
@@ -1082,8 +1086,9 @@ class StreamController extends BaseStreamController {
 
   onAudioTrackSwitching (data) {
     // if any URL found on new audio track, it is an alternate audio track
-    let altAudio = !!data.url,
-      trackId = data.id;
+    const fromAltAudio = this.altAudio;
+    const altAudio = !!data.url;
+    const trackId = data.id;
     // if we switch on main audio, ensure that main fragment scheduling is synced with media.buffered
     // don't do anything if we switch to alt audio: audio stream controller is handling it.
     // we will just have to change buffer scheduling on audioTrackSwitched
@@ -1108,10 +1113,17 @@ class StreamController extends BaseStreamController {
         this.state = State.IDLE;
       }
       let hls = this.hls;
-      // switching to main audio, flush all audio and trigger track switched
-      hls.trigger(Event.BUFFER_FLUSHING, { startOffset: 0, endOffset: Number.POSITIVE_INFINITY, type: 'audio' });
-      hls.trigger(Event.AUDIO_TRACK_SWITCHED, { id: trackId });
-      this.altAudio = false;
+      // If switching from alt to main audio, flush all audio and trigger track switched
+      if (fromAltAudio) {
+        hls.trigger(Event.BUFFER_FLUSHING, {
+          startOffset: 0,
+          endOffset: Number.POSITIVE_INFINITY,
+          type: 'audio'
+        });
+      }
+      hls.trigger(Event.AUDIO_TRACK_SWITCHED, {
+        id: trackId
+      });
     }
   }
 
