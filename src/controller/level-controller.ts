@@ -441,20 +441,19 @@ export default class LevelController implements NetworkComponentAPI {
   }
 
   protected onAudioTrackSwitched (event: Events.AUDIO_TRACK_SWITCHED, data: TrackSwitchedData) {
-    const audioGroupId = this.hls.audioTracks[data.id].groupId;
-
     const currentLevel = this.hls.levels[this.currentLevelIndex as number];
     if (!currentLevel) {
       return;
     }
     if (currentLevel.audioGroupIds) {
       let urlId = -1;
-      currentLevel.audioGroupIds.some((groupId, i) => {
-        if (groupId === audioGroupId) {
+      const audioGroupId = this.hls.audioTracks[data.id].groupId;
+      for (let i = 0; i < currentLevel.audioGroupIds.length; i++) {
+        if (currentLevel.audioGroupIds[i] === audioGroupId) {
           urlId = i;
-          return true;
+          break;
         }
-      });
+      }
       if (urlId !== currentLevel.urlId) {
         currentLevel.urlId = urlId;
         this.startLoad();

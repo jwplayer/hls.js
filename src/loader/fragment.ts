@@ -74,11 +74,12 @@ export default class Fragment {
   public start: number = 0;
   // Set when the fragment was loaded and transmuxed, but was stopped from buffering due to dropped frames.
   public backtracked: boolean = false;
-  // LHLS prefetch flag
-  public prefetch?: boolean;
   // Set by `updateFragPTSDTS` in level-helper
   public deltaPTS?: number;
+  // The maximum starting Presentation Time Stamp (audio/video PTS) of the fragment. Set after transmux complete.
   public maxStartPTS?: number;
+  // The minimum ending Presentation Time Stamp (audio/video PTS) of the fragment. Set after transmux complete.
+  public minEndPTS?: number;
   // Load/parse timing information
   public stats: LoadStats = new LoadStats();
   public urlId: number = 0;

@@ -387,6 +387,9 @@ export default class BufferController implements ComponentAPI {
       this.blockBuffers(this.updateMediaElementDuration.bind(this, levelDuration));
     } else {
       this.updateMediaElementDuration(levelDuration);
+      if (this.hls.config.liveDurationInfinity) {
+        this.updateSeekableRange(details);
+      }
     }
   }
 
@@ -428,7 +431,11 @@ export default class BufferController implements ComponentAPI {
         logger.warn('[buffer-controller]: Failed to abort the audio SourceBuffer', e);
       }
     };
-    operationQueue.append(operation, type);
+    operationQueue.insertAbort(operation, type);
+
+    if (this.hls.config.liveDurationInfinity) {
+      this.updateSeekableRange(data.details);
+    }
   }
 
   flushLiveBackBuffer () {
@@ -495,6 +502,17 @@ export default class BufferController implements ComponentAPI {
       // flushing already buffered portion when switching between quality level
       logger.log(`[buffer-controller]: Updating Media Source duration to ${levelDuration.toFixed(3)}`);
       this._msDuration = mediaSource.duration = levelDuration;
+    }
+  }
+
+  updateSeekableRange (levelDetails) {
+    const mediaSource = this.mediaSource;
+    const fragments = levelDetails.fragments;
+    const len = fragments.length;
+    if (len && mediaSource?.setLiveSeekableRange) {
+      const start = fragments[0]?.start;
+      const end = fragments[len - 1].start + fragments[len - 1].duration;
+      mediaSource.setLiveSeekableRange(start, end);
     }
   }
 
@@ -660,10 +678,13 @@ export default class BufferController implements ComponentAPI {
       return;
     }
     logger.log(`[buffer-controller]: Aborting the ${type} SourceBuffer`);
-    console.assert(!sb.updating, `${type} sourceBuffer must not be updating`);
+    // console.assert(!sb.updating, `${type} sourceBuffer must not be updating`);
+    const updating = sb.updating;
     sb.abort();
     // updateend is only triggered if aborting while updating is true
-    this._onSBUpdateEnd(type);
+    if (!updating) {
+      this._onSBUpdateEnd(type);
+    }
   }
 
   // Enqueues an operation to each SourceBuffer queue which, upon execution, resolves a promise. When all promises

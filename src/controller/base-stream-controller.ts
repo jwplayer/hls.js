@@ -112,9 +112,7 @@ export default class BaseStreamController extends TaskLoop {
     const currentTime = media ? media.currentTime : null;
     const bufferInfo = BufferHelper.bufferInfo(mediaBuffer || media, currentTime, this.config.maxBufferHole);
 
-    if (Number.isFinite(currentTime)) {
-      this.log(`media seeking to ${currentTime.toFixed(3)}, state: ${state}`);
-    }
+    this.log(`media seeking to ${Number.isFinite(currentTime) ? currentTime.toFixed(3) : currentTime}, state: ${state}`);
 
     if (state === State.ENDED) {
       // if seeking to unbuffered area, clean up fragPrevious
@@ -463,13 +461,6 @@ export default class BaseStreamController extends TaskLoop {
       }
     }
 
-    // If no fragment has been selected by this point, load any one
-    if (!frag) {
-      const len = fragments.length;
-      frag = fragments[Math.min(len - 1, Math.round(len / 2))];
-      this.log(`Live playlist, switching playlist, unknown, load middle frag : ${frag!.sn}`);
-    }
-
     return frag;
   }
 
@@ -503,7 +494,9 @@ export default class BaseStreamController extends TaskLoop {
         if (sameLevel && !frag.backtracked) {
           if (frag.sn < levelDetails.endSN) {
             frag = nextFrag;
-            this.log(`SN just loaded, load next one: ${frag.sn}`);
+            if (this.fragmentTracker.getState(frag) !== FragmentState.OK) {
+              this.log(`SN just loaded, load next one: ${frag.sn}`);
+            }
           } else {
             frag = null;
           }
@@ -538,7 +531,7 @@ export default class BaseStreamController extends TaskLoop {
 
     if (bufferEnd < Math.max(start - config.maxFragLookUpTolerance, end - maxLatency)) {
       const liveSyncPosition = this._liveSyncPosition = this.computeLivePosition(start, targetDuration, totalDuration);
-      this.log(`Buffer end: ${bufferEnd.toFixed(3)} is located too far from the end of live sliding playlist, reset currentTime to : ${liveSyncPosition.toFixed(3)}`);
+      this.warn(`Buffer end: ${bufferEnd.toFixed(3)} is located too far from the end of live sliding playlist, reset currentTime to : ${liveSyncPosition.toFixed(3)}`);
       this.nextLoadPosition = liveSyncPosition;
       if (media?.readyState && media.duration > liveSyncPosition && liveSyncPosition > media.currentTime) {
         media.currentTime = liveSyncPosition;
