@@ -22,7 +22,7 @@ const browserConfig = {
  */
 let browser;
 let stream;
-let printDebugLogs = false;
+let printDebugLogs = true;
 
 // Setup browser config data from env vars
 if (onTravis) {
@@ -36,10 +36,11 @@ if (onTravis) {
     throw new Error('No test browser platform.');
   }
 
-  let UA_VERSION = process.env.UA_VERSION;
-  if (UA_VERSION) {
-    browserConfig.version = UA_VERSION;
-  }
+  // let UA_VERSION = process.env.UA_VERSION;
+  // if (UA_VERSION) {
+  //   browserConfig.version = UA_VERSION;
+  // }
+  browserConfig.version = '84';
 
   browserConfig.name = UA;
   browserConfig.platform = OS;
