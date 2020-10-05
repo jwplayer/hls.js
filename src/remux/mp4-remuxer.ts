@@ -16,11 +16,13 @@ import { TrackSet } from '../types/track';
 import { SourceBufferName } from '../types/buffer';
 import Fragment from '../loader/fragment';
 import { HlsConfig } from '../config';
-import { toMpegTsClockFromTimescale, toMsFromMpegTsClock } from '../utils/timescale-conversion';
+import { toMsFromMpegTsClock } from '../utils/timescale-conversion';
 
 const MAX_SILENT_FRAME_DURATION = 10 * 1000; // 10 seconds
 const AAC_SAMPLES_PER_FRAME = 1024;
 const MPEG_AUDIO_SAMPLE_PER_FRAME = 1152;
+
+let chromeVersion: number | null = null;
 
 export default class MP4Remuxer implements Remuxer {
   private observer: HlsEventEmitter;
@@ -31,8 +33,6 @@ export default class MP4Remuxer implements Remuxer {
   private _initDTS!: number;
   private nextAvcDts: number | null = null;
   private nextAudioPts: number | null = null;
-  private isSafari: boolean = false;
-  private isOldChrome: boolean = false;
   private isAudioContiguous: boolean = false;
   private isVideoContiguous: boolean = false;
 
@@ -42,14 +42,10 @@ export default class MP4Remuxer implements Remuxer {
     this.typeSupported = typeSupported;
     this.ISGenerated = false;
 
-    const userAgent = navigator.userAgent || '';
-    const chromeIndex = userAgent.indexOf('Chrome');
-    if (chromeIndex > -1) {
-      // The version string starts immediately after the word "Chrome"
-      if (parseInt(userAgent.substring(chromeIndex + 7), 10) < 50) {
-        // This flag is used to maintain compatibility with old versions of MSE
-        this.isOldChrome = true;
-      }
+    if (chromeVersion === null) {
+      const userAgent = navigator.userAgent || '';
+      const result = userAgent.match(/Chrome\/(\d+)/i);
+      chromeVersion = result ? parseInt(result[1]) : 0;
     }
   }
 
@@ -146,7 +142,7 @@ export default class MP4Remuxer implements Remuxer {
             initSegment = this.generateIS(audioTrack, videoTrack, timeOffset);
             delete initSegment.video;
           }
-          audio = this.remuxAudio(audioTrack, audioTimeOffset, this.isAudioContiguous, accurateTimeOffset);
+          audio = this.remuxAudio(audioTrack, audioTimeOffset, this.isAudioContiguous, accurateTimeOffset, videoTimeOffset);
           if (enoughVideoSamples) {
             const audioTrackLength = audio ? audio.endPTS - audio.startPTS : 0;
             // if initSegment was generated without video samples, regenerate it again
@@ -158,9 +154,6 @@ export default class MP4Remuxer implements Remuxer {
           }
         } else if (enoughVideoSamples) {
           video = this.remuxVideo(videoTrack, videoTimeOffset, isVideoContiguous, 0);
-          if (video && audioTrack.codec) {
-            this.remuxEmptyAudio(audioTrack, audioTimeOffset, this.isAudioContiguous, video);
-          }
         }
       }
     }
@@ -326,12 +319,16 @@ export default class MP4Remuxer implements Remuxer {
     if (ptsDtsShift < 0) {
       if (ptsDtsShift < averageSampleDuration * -2) {
         // Fix for "CNN special report, with CC" in test-streams (including Safari browser)
-        logger.warn(`PTS < DTS detected in video samples, offsetting DTS to PTS ${toMsFromMpegTsClock(-averageSampleDuration, true)} ms`);
+        // With large PTS < DTS errors such as this, we want to correct CTS while maintaining increasing DTS values
+        logger.warn(`PTS < DTS detected in video samples, offsetting DTS from PTS by ${toMsFromMpegTsClock(-averageSampleDuration, true)} ms`);
+        let lastDts = ptsDtsShift;
         for (let i = 0; i < nbSamples; i++) {
-          inputSamples[i].dts = inputSamples[i].pts - averageSampleDuration;
+          inputSamples[i].dts = lastDts = Math.max(lastDts, inputSamples[i].pts - averageSampleDuration);
+          inputSamples[i].pts = Math.max(lastDts, inputSamples[i].pts);
         }
       } else {
         // Fix for "Custom IV with bad PTS DTS" in test-streams
+        // With smaller PTS < DTS errors we can simply move all DTS back. This increases CTS without causing buffer gaps or decode errors in Safari
         logger.warn(`PTS < DTS detected in video samples, shifting DTS by ${toMsFromMpegTsClock(ptsDtsShift, true)} ms to overcome this issue`);
         for (let i = 0; i < nbSamples; i++) {
           inputSamples[i].dts = inputSamples[i].dts + ptsDtsShift;
@@ -361,6 +358,9 @@ export default class MP4Remuxer implements Remuxer {
       }
     }
 
+    if (chromeVersion && chromeVersion < 75) {
+      firstDTS = Math.max(0, firstDTS);
+    }
     let nbNalu = 0;
     let naluLen = 0;
     for (let i = 0; i < nbSamples; i++) {
@@ -457,7 +457,7 @@ export default class MP4Remuxer implements Remuxer {
       outputSamples.push(new Mp4Sample(avcSample.key, mp4SampleDuration, mp4SampleLength, compositionTimeOffset));
     }
 
-    if (outputSamples.length && this.isOldChrome) {
+    if (outputSamples.length && chromeVersion && chromeVersion < 70) {
       // Chrome workaround, mark first sample as being a Random Access Point (keyframe) to avoid sourcebuffer append issue
       // https://code.google.com/p/chromium/issues/detail?id=229412
       const flags = outputSamples[0].flags;
@@ -495,7 +495,7 @@ export default class MP4Remuxer implements Remuxer {
     return data;
   }
 
-  remuxAudio (track: DemuxedAudioTrack, timeOffset: number, contiguous: boolean, accurateTimeOffset: boolean): RemuxedTrack | undefined {
+  remuxAudio (track: DemuxedAudioTrack, timeOffset: number, contiguous: boolean, accurateTimeOffset: boolean, videoTimeOffset?: number): RemuxedTrack | undefined {
     const inputTimeScale: number = track.inputTimeScale;
     const mp4timeScale: number = track.samplerate ? track.samplerate : inputTimeScale;
     const scaleFactor: number = inputTimeScale / mp4timeScale;
@@ -541,12 +541,15 @@ export default class MP4Remuxer implements Remuxer {
     }
 
     if (!contiguous || nextAudioPts < 0) {
-      if (!accurateTimeOffset) {
-        // if frag are mot contiguous and if we cant trust time offset, let's use first sample PTS as next audio PTS
-        nextAudioPts = inputSamples[0].pts;
-      } else {
-        // if timeOffset is accurate, let's use it as predicted next audio PTS
+      if (videoTimeOffset === 0) {
+        // Set the start to 0 to match video so that start gaps larger than inputSampleDuration are filled with silence
+        nextAudioPts = 0;
+      } else if (accurateTimeOffset) {
+        // When not seeking, not live, and LevelDetails.PTSKnown, use fragment start as predicted next audio PTS
         nextAudioPts = Math.max(0, timeOffset * inputTimeScale);
+      } else {
+        // if frags are not contiguous and if we cant trust time offset, let's use first sample PTS as next audio PTS
+        nextAudioPts = inputSamples[0].pts;
       }
     }
 
@@ -584,8 +587,11 @@ export default class MP4Remuxer implements Remuxer {
         // 1: We're more than maxAudioFramesDrift frame away
         // 2: Not more than MAX_SILENT_FRAME_DURATION away
         // 3: currentTime (aka nextPtsNorm) is not 0
-        else if (delta >= maxAudioFramesDrift * inputSampleDuration && duration < MAX_SILENT_FRAME_DURATION && nextPts) {
-          const missing = Math.round(delta / inputSampleDuration);
+        else if (delta >= maxAudioFramesDrift * inputSampleDuration && duration < MAX_SILENT_FRAME_DURATION) {
+          const missing = Math.floor(delta / inputSampleDuration);
+          // Adjust nextPts so that silent samples are aligned with media pts. This will prevent media samples from
+          // later being shifted if nextPts is based on timeOffset and delta is not a multiple of inputSampleDuration.
+          nextPts = pts - missing * inputSampleDuration;
           logger.warn(`[mp4-remuxer]: Injecting ${missing} audio frame @ ${(nextPts / inputTimeScale).toFixed(3)}s due to ${Math.round(1000 * delta / inputTimeScale)} ms gap.`);
           for (let j = 0; j < missing; j++) {
             const newStamp = Math.max(nextPts as number, 0);

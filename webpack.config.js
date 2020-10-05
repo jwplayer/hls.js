@@ -1,7 +1,7 @@
 const pkgJson = require('./package.json');
 const path = require('path');
 const webpack = require('webpack');
-const merge = require('webpack-merge');
+const { merge } = require('webpack-merge');
 const importHelper = require('@babel/helper-module-imports');
 
 /* Allow to customise builds through env-vars */
@@ -224,18 +224,6 @@ const multiConfig = [
         } : {})
       })
     ],
-    devtool: 'source-map'
-  },
-  {
-    name: 'timeline',
-    entry: './demo-timeline/src/index',
-    mode: 'development',
-    output: {
-      filename: 'index.js',
-      path: path.resolve(__dirname, 'demo-timeline/dist'),
-      publicPath: '/demo-timeline/dist/'
-    },
-    plugins: mainPlugins,
     devtool: 'source-map'
   }
 ].map(config => {
